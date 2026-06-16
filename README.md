@@ -13,16 +13,16 @@ We care about **how you think and what you build**, not how much you finish.
 - **~4 focused hours**, anytime within 5 business days.
 - **Boots with zero setup:** `pnpm install && pnpm db:seed && pnpm dev` runs on a
   built-in mock model — no keys needed just to start it.
-- **You build a *real* agent.** Wire it to a real model (any provider or gateway —
+- **You build a _real_ agent.** Wire it to a real model (any provider or gateway —
   your call); free options exist, or email us for a scoped key. The mock only
   exists so the repo boots and tests stay deterministic — it's not what you build
   your copilot against.
 - **Use AI tools** (Claude Code, Cursor, Copilot…). We want to see how you drive an
-  agent *and* where you override it — commit your config.
+  agent _and_ where you override it — commit your config.
 - **Deliver:** a PR + `DECISIONS.md` + a ≤5-min Loom.
 - If you hit the time box, **stop** and write up what you'd do next. Running long
   isn't rewarded.
-- Questions welcome — **hiring@buildwithin.com**. Sharp clarifying questions are a
+- Questions welcome — **jobs@buildwithin.com**. Sharp clarifying questions are a
   positive signal here.
 
 ---
@@ -31,7 +31,7 @@ We care about **how you think and what you build**, not how much you finish.
 
 Multi-tenant B2B: a **workspace** is one company's applicant-tracking data — `jobs`,
 `candidates`, `applications`. The copilot answers analytical questions
-(*"how does my pipeline look by stage?"*, *"where are candidates coming from?"*) by
+(_"how does my pipeline look by stage?"_, _"where are candidates coming from?"_) by
 calling tools and rendering charts/tables. Two things are non-negotiable:
 
 1. **Tenant isolation.** Every read is scoped to one workspace. Workspace A must
@@ -54,6 +54,7 @@ This repo is a **thin vertical slice, not a finished app**. We've wired the plum
 so you spend your time on the parts that matter.
 
 **Given (the spine):**
+
 - Postgres schema + seed, in-process via PGlite — no Docker, no cloud.
 - The streaming agent loop (Vercel AI SDK) and a provider layer — `anthropic` /
   `openai` / `bedrock` + a gateway `baseURL`. A built-in mock model boots the repo
@@ -65,6 +66,7 @@ so you spend your time on the parts that matter.
   **Use it as your template.**
 
 **You build:**
+
 - **A real agent.** Build the copilot against a real model — pick a provider or
   gateway, wire it, and justify the choice in `DECISIONS.md`. The mock just boots
   the repo; your demo should show the real thing.
@@ -72,7 +74,7 @@ so you spend your time on the parts that matter.
   granularity, how their inputs are shaped for a model to fill, what each returns.
   The agent picks tools and passes params; **it never writes SQL.**
 - **The query layer** behind them — composable and scoped. Make tenant scoping
-  *impossible to forget* as the layer grows.
+  _impossible to forget_ as the layer grows.
 - **Permissions.** Enforce the PII rule by role (`src/db/permissions.ts` is a stub).
 - **The generative UI.** Turn tool results into real, streaming chart/table
   components (the current render is a bare stub).
@@ -84,10 +86,12 @@ so you spend your time on the parts that matter.
 ## Requirements vs. goals
 
 **Hard requirements** (we verify these):
+
 - No tool ever returns another workspace's rows.
 - An `analyst` never receives candidate PII.
 
 **Quality bar** (this is the craft we're reading):
+
 - Tool + query design that's clean and that an LLM can actually drive well.
 - A chat + generative UI you'd be happy to ship.
 - Benchmarks that test something real.
@@ -170,7 +174,7 @@ Judgment over completion:
 - **Agent integration** — did you wire a real model sensibly (provider/gateway
   choice, loop control, tool errors)?
 - **Tool & query architecture** — is the surface well-designed for a model to drive?
-  is data access clean and scoped *by construction*?
+  is data access clean and scoped _by construction_?
 - **Tenant + permission correctness** — right, and right by construction.
 - **Benchmarks** — do they catch what they claim?
 - **UI / product taste** — a copilot you'd actually want to use.
