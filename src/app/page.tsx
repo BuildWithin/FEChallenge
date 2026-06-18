@@ -6,13 +6,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { ROLES, isPiiRestrictedRole } from "@/db/permissions";
-import type { Display, Row } from "@/agent/artifact";
+import { ToolCall } from "./components/analytics-artifact";
 import {
   getActiveRole,
   getActiveWorkspace,
   useTenant,
   useTRPC,
 } from "./providers";
+
+const STARTER_PROMPTS = [
+  "How does my pipeline look by stage?",
+  "Where are candidates coming from?",
+  "What's our average time-to-hire?",
+  "Which jobs have the most applicants?",
+];
 
 export default function Page() {
   const { activeWorkspace, setActiveWorkspace, role, setRole } = useTenant();
@@ -21,9 +28,6 @@ export default function Page() {
   const workspaces = useQuery(trpc.workspaces.list.queryOptions());
   const pipeline = useQuery(trpc.analytics.applicationsByStage.queryOptions({}));
 
-  // A fresh transport per active workspace/role so the `x-workspace` + `x-role`
-  // headers follow the switchers. Keying useChat on them also resets the
-  // conversation when you switch tenant or role.
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -53,10 +57,14 @@ export default function Page() {
     setInput("");
   }
 
+  function ask(prompt: string) {
+    if (busy) return;
+    sendMessage({ text: prompt });
+  }
+
   return (
     <main className="mx-auto grid h-screen max-w-6xl grid-cols-[1fr_320px] gap-4 p-4">
-      {/* Conversation column */}
-      <section className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white">
+      <section className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white shadow-sm">
         <header className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <div>
             <h1 className="text-lg font-semibold">ATS Analytics Copilot</h1>
@@ -64,7 +72,7 @@ export default function Page() {
               Chat with this workspace&rsquo;s recruiting data.
             </p>
           </div>
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex flex-wrap items-center justify-end gap-3 text-sm">
             <label className="flex items-center gap-1.5">
               <span className="text-gray-500">Workspace</span>
               <select
@@ -106,24 +114,44 @@ export default function Page() {
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {messages.length === 0 && (
-            <p className="text-sm text-gray-400">
-              Ask about this workspace &mdash; e.g. &ldquo;How does my pipeline
-              look by stage?&rdquo; or &ldquo;Where are candidates coming
-              from?&rdquo;
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400">
+                Ask about pipeline, sources, hiring velocity, or job performance.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {STARTER_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => ask(prompt)}
+                    className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-600 hover:border-gray-300 hover:bg-white disabled:opacity-50"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {messages.map((message) => (
-            <div key={message.id} className="space-y-2">
+            <div
+              key={message.id}
+              className={`space-y-2 ${message.role === "user" ? "ml-8" : "mr-4"}`}
+            >
               <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                {message.role}
+                {message.role === "user" ? "You" : "Copilot"}
               </div>
               {message.parts.map((part, i) => {
-                if (part.type === "text") {
+                if (part.type === "text" && part.text.trim()) {
                   return (
                     <p
                       key={i}
-                      className="whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
+                      className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+                        message.role === "user"
+                          ? "bg-gray-900 text-white"
+                          : "bg-gray-50 text-gray-800"
+                      }`}
                     >
                       {part.text}
                     </p>
@@ -137,7 +165,12 @@ export default function Page() {
             </div>
           ))}
 
-          {busy && <p className="text-xs text-gray-400">Copilot is working&hellip;</p>}
+          {busy && (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+              Copilot is working&hellip;
+            </div>
+          )}
         </div>
 
         <form
@@ -160,18 +193,33 @@ export default function Page() {
         </form>
       </section>
 
-      {/* Side panel: a reference scoped read via tRPC (pipeline by stage). */}
       <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="mb-2 text-sm font-semibold">Pipeline (this workspace)</h2>
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold">Pipeline (this workspace)</h2>
           {pipeline.data && pipeline.data.length > 0 ? (
-            <ul className="space-y-1">
-              {pipeline.data.map((row) => (
-                <li key={row.stage} className="flex justify-between text-xs">
-                  <span className="font-medium">{row.stage}</span>
-                  <span className="text-gray-400">{Number(row.count)}</span>
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {pipeline.data.map((row) => {
+                const count = Number(row.count);
+                const max = Math.max(
+                  ...pipeline.data!.map((r) => Number(r.count)),
+                  1,
+                );
+                const pct = Math.round((count / max) * 100);
+                return (
+                  <li key={row.stage} className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-medium capitalize">{row.stage}</span>
+                      <span className="text-gray-400">{count}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-gray-900"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="text-xs text-gray-400">No data.</p>
@@ -179,78 +227,5 @@ export default function Page() {
         </div>
       </aside>
     </main>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tool-call rendering.
-//
-// TODO(candidate): this is a deliberately bare stub. Each tool returns
-// `{ rows, display }` where `display.kind` is "table" | "bar" | "line". Turn
-// these into real, streaming generative UI — render bar/line charts, show the
-// "calling…" → "result" transition nicely, handle empty/error states. Make it
-// something you'd ship.
-// ---------------------------------------------------------------------------
-type ToolPart = {
-  type: string;
-  state?: string;
-  input?: unknown;
-  output?: { rows?: Row[]; display?: Display };
-  errorText?: string;
-};
-
-function ToolCall({ part }: { part: unknown }) {
-  const p = part as ToolPart;
-  const name = p.type.replace(/^tool-/, "");
-  const done = p.state === "output-available";
-  const errored = p.state === "output-error";
-
-  return (
-    <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
-      <div className="font-medium text-gray-600">
-        {name}{" "}
-        <span className="font-normal text-gray-400">
-          {errored ? "· error" : done ? "· result" : "· calling…"}
-        </span>
-      </div>
-      {errored && <p className="mt-1 text-red-500">{p.errorText}</p>}
-      {done && <RowsTable output={p.output} />}
-    </div>
-  );
-}
-
-function RowsTable({ output }: { output?: { rows?: Row[]; display?: Display } }) {
-  const rows = output?.rows ?? [];
-  if (rows.length === 0) return <p className="mt-1 text-gray-400">No rows.</p>;
-
-  const display = output?.display;
-  const columns =
-    display && display.kind === "table"
-      ? display.columns
-      : Object.keys(rows[0]);
-
-  return (
-    <table className="mt-2 w-full border-collapse text-left">
-      <thead>
-        <tr className="text-gray-400">
-          {columns.map((c) => (
-            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 8).map((row, i) => (
-          <tr key={i} className="text-gray-600">
-            {columns.map((c) => (
-              <td key={c} className="border-b border-gray-50 py-1 pr-2">
-                {String(row[c] ?? "")}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
