@@ -26,6 +26,7 @@ export default function Page() {
   const trpc = useTRPC();
 
   const workspaces = useQuery(trpc.workspaces.list.queryOptions());
+  const agentMeta = useQuery(trpc.meta.agent.queryOptions());
   const pipeline = useQuery(trpc.analytics.applicationsByStage.queryOptions({}));
 
   const transport = useMemo(
@@ -70,6 +71,17 @@ export default function Page() {
             <h1 className="text-lg font-semibold">ATS Analytics Copilot</h1>
             <p className="text-xs text-gray-500">
               Chat with this workspace&rsquo;s recruiting data.
+              {agentMeta.data && (
+                <span
+                  className={`ml-2 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                    agentMeta.data.isMock
+                      ? "bg-gray-100 text-gray-500"
+                      : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                  }`}
+                >
+                  {agentMeta.data.label}
+                </span>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3 text-sm">

@@ -60,6 +60,17 @@ export function buildTools(ctx: AnalyticsCtx) {
     return { rows: safeRows, display: safeDisplay };
   };
 
+  async function runQuery<T>(toolName: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      throw new Error(
+        `${toolName} failed: ${detail}. Try different filters, verify jobId via listJobs, or use another tool.`,
+      );
+    }
+  }
+
   return {
     applicationCountByStage: tool({
       description:
@@ -69,12 +80,14 @@ export function buildTools(ctx: AnalyticsCtx) {
         ...dateRangeSchema,
       }),
       async execute(input) {
-        const rows = await applicationCountByStage(ctx, input);
-        return result(rows, {
-          kind: "bar",
-          x: "stage",
-          y: "count",
-          title: "Applications by stage",
+        return runQuery("applicationCountByStage", async () => {
+          const rows = await applicationCountByStage(ctx, input);
+          return result(rows, {
+            kind: "bar",
+            x: "stage",
+            y: "count",
+            title: "Applications by stage",
+          });
         });
       },
     }),
@@ -84,12 +97,14 @@ export function buildTools(ctx: AnalyticsCtx) {
         "Count candidates grouped by acquisition source (referral, linkedin, job_board, agency, careers_site). Use for questions about where candidates come from.",
       inputSchema: z.object({ ...dateRangeSchema }),
       async execute(input) {
-        const rows = await candidatesBySource(ctx, input);
-        return result(rows, {
-          kind: "bar",
-          x: "source",
-          y: "count",
-          title: "Candidates by source",
+        return runQuery("candidatesBySource", async () => {
+          const rows = await candidatesBySource(ctx, input);
+          return result(rows, {
+            kind: "bar",
+            x: "source",
+            y: "count",
+            title: "Candidates by source",
+          });
         });
       },
     }),
@@ -106,12 +121,14 @@ export function buildTools(ctx: AnalyticsCtx) {
         ...dateRangeSchema,
       }),
       async execute(input) {
-        const rows = await applicationsOverTime(ctx, input);
-        return result(rows, {
-          kind: "line",
-          x: "period",
-          y: "count",
-          title: "Applications over time",
+        return runQuery("applicationsOverTime", async () => {
+          const rows = await applicationsOverTime(ctx, input);
+          return result(rows, {
+            kind: "line",
+            x: "period",
+            y: "count",
+            title: "Applications over time",
+          });
         });
       },
     }),
@@ -128,10 +145,12 @@ export function buildTools(ctx: AnalyticsCtx) {
         ...dateRangeSchema,
       }),
       async execute(input) {
-        const rows = await timeToHire(ctx, input);
-        return result(rows, {
-          kind: "table",
-          columns: ["avgDays", "hiredCount"],
+        return runQuery("timeToHire", async () => {
+          const rows = await timeToHire(ctx, input);
+          return result(rows, {
+            kind: "table",
+            columns: ["avgDays", "hiredCount"],
+          });
         });
       },
     }),
@@ -144,15 +163,17 @@ export function buildTools(ctx: AnalyticsCtx) {
         ...dateRangeSchema,
       }),
       async execute(input) {
-        const rows = await stageConversionRates(ctx, input);
-        return result(rows, {
-          kind: "table",
-          columns: [
-            "stage",
-            "count",
-            "pctOfTotal",
-            "conversionFromPrevious",
-          ],
+        return runQuery("stageConversionRates", async () => {
+          const rows = await stageConversionRates(ctx, input);
+          return result(rows, {
+            kind: "table",
+            columns: [
+              "stage",
+              "count",
+              "pctOfTotal",
+              "conversionFromPrevious",
+            ],
+          });
         });
       },
     }),
@@ -169,15 +190,17 @@ export function buildTools(ctx: AnalyticsCtx) {
         ...dateRangeSchema,
       }),
       async execute(input) {
-        const rows = await jobPerformance(ctx, input);
-        return result(rows, {
-          kind: "table",
-          columns: [
-            "title",
-            "department",
-            "status",
-            "applicationCount",
-          ],
+        return runQuery("jobPerformance", async () => {
+          const rows = await jobPerformance(ctx, input);
+          return result(rows, {
+            kind: "table",
+            columns: [
+              "title",
+              "department",
+              "status",
+              "applicationCount",
+            ],
+          });
         });
       },
     }),
@@ -191,11 +214,13 @@ export function buildTools(ctx: AnalyticsCtx) {
         source: sourceSchema,
       }),
       async execute(input) {
-        const rows = await candidatesInStage(ctx, input);
-        const columns = rows[0]
-          ? Object.keys(rows[0])
-          : ["candidateId", "source", "stage", "jobId", "appliedAt"];
-        return result(rows, { kind: "table", columns });
+        return runQuery("candidatesInStage", async () => {
+          const rows = await candidatesInStage(ctx, input);
+          const columns = rows[0]
+            ? Object.keys(rows[0])
+            : ["candidateId", "source", "stage", "jobId", "appliedAt"];
+          return result(rows, { kind: "table", columns });
+        });
       },
     }),
 
@@ -210,10 +235,12 @@ export function buildTools(ctx: AnalyticsCtx) {
           .describe("Filter to jobs in this department"),
       }),
       async execute(input) {
-        const rows = await listJobs(ctx, input);
-        return result(rows, {
-          kind: "table",
-          columns: ["title", "department", "location", "status"],
+        return runQuery("listJobs", async () => {
+          const rows = await listJobs(ctx, input);
+          return result(rows, {
+            kind: "table",
+            columns: ["id", "title", "department", "location", "status"],
+          });
         });
       },
     }),

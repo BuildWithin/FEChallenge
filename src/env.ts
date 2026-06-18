@@ -11,7 +11,7 @@ export const env = {
   AI_PROVIDER: (process.env.AI_PROVIDER ?? "mock") as AiProvider,
 
   /** Model ids per provider (only read when that provider is selected). */
-  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514",
   OPENAI_MODEL: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
   BEDROCK_MODEL:
     process.env.BEDROCK_MODEL ??

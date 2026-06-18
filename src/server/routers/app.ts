@@ -12,6 +12,8 @@ import {
   type AnalyticsCtx,
 } from "@/db/analytics";
 import { db, ensureSchema } from "@/db/client";
+import { getProviderLabel, isMockProvider } from "@/agent/provider";
+import { env } from "@/env";
 import { workspaces } from "@/db/schema";
 import { router, scopedProcedure, publicProcedure } from "../trpc";
 
@@ -45,6 +47,14 @@ async function withAnalytics<T>(
 }
 
 export const appRouter = router({
+  meta: router({
+    agent: publicProcedure.query(() => ({
+      provider: env.AI_PROVIDER,
+      label: getProviderLabel(),
+      isMock: isMockProvider(),
+    })),
+  }),
+
   workspaces: router({
     // Intentionally unscoped: lists workspace names for the tenant switcher only.
     list: publicProcedure.query(async () => {

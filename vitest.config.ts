@@ -10,6 +10,10 @@ export default defineConfig({
   test: {
     // PGlite + model streaming can take a moment on a cold start.
     testTimeout: 30_000,
+    // CI/tests always use the offline mock — never a real API key.
+    env: {
+      AI_PROVIDER: "mock",
+    },
     // PGlite is file-backed and WASM-based — one process avoids handle conflicts.
     fileParallelism: false,
     pool: "forks",

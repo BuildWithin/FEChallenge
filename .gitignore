@@ -12,8 +12,12 @@
 *.tsbuildinfo
 next-env.d.ts
 
-# env
+# env — never commit files that can hold API keys
+.env
+.env.local
 .env*.local
+.env.development
+.env.production
 
 # misc
 .DS_Store
