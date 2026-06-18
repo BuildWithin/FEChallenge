@@ -79,23 +79,61 @@ function functionTools(options: LanguageModelV3CallOptions): FnTool[] {
     .map((t) => ({ name: t.name as string, description: t.description ?? "" }));
 }
 
+const STAGES = [
+  "applied",
+  "screen",
+  "interview",
+  "offer",
+  "hired",
+  "rejected",
+] as const;
+
+/** Split camelCase tool names into words for intent matching. */
+function toolNameWords(name: string): string[] {
+  return name
+    .replace(/([A-Z])/g, " $1")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2);
+}
+
 /** Pick the tool whose name/description best overlaps the user's question. */
 function pickTool(tools: FnTool[], userText: string): FnTool {
   const t = userText.toLowerCase();
   let best = tools[0];
   let bestScore = -1;
   for (const tool of tools) {
-    const words = `${tool.name} ${tool.description}`
+    const words = `${tool.description}`
       .toLowerCase()
       .split(/[^a-z0-9]+/)
       .filter((w) => w.length > 3);
-    const score = words.filter((w) => t.includes(w)).length;
+    let score = words.filter((w) => t.includes(w)).length;
+    score += toolNameWords(tool.name).filter((w) => t.includes(w)).length * 2;
+    if (tool.name === "candidatesBySource" && /coming from|by source/.test(t)) {
+      score += 6;
+    }
+    if (tool.name === "candidatesInStage" && /\bcandidates?\b/.test(t)) {
+      score += 4;
+    }
+    if (tool.name === "applicationCountByStage" && /pipeline|by stage/.test(t)) {
+      score += 4;
+    }
     if (score > bestScore) {
       bestScore = score;
       best = tool;
     }
   }
   return best;
+}
+
+/** Best-effort params for tools that need required inputs in offline mode. */
+function inferToolInput(toolName: string, userText: string): Record<string, unknown> {
+  const t = userText.toLowerCase();
+  if (toolName === "candidatesInStage") {
+    const stage = STAGES.find((s) => t.includes(s));
+    if (stage) return { stage };
+  }
+  return {};
 }
 
 function textParts(id: string, text: string): LanguageModelV3StreamPart[] {
@@ -131,11 +169,12 @@ function buildParts(
 
   if (calls === 0 && tools.length > 0) {
     // Step 1: call the most relevant tool.
-    const chosen = pickTool(tools, lastUserText(prompt));
+    const userText = lastUserText(prompt);
+    const chosen = pickTool(tools, userText);
     parts.push(
       ...textParts("t1", "Let me pull that from this workspace's data."),
     );
-    parts.push(toolCall(chosen.name, {}));
+    parts.push(toolCall(chosen.name, inferToolInput(chosen.name, userText)));
     parts.push(finished("tool-calls"));
     return parts;
   }

@@ -242,14 +242,33 @@ export async function candidatesInStage(
   opts: { stage: string; jobId?: string; source?: string },
 ) {
   const scope = createScope(ctx);
-  const showPii = canReadColumn(ctx.role, "candidates", "name");
+  const where = scope.applicationsWhere(
+    eq(applications.stage, opts.stage),
+    opts.jobId ? eq(applications.jobId, opts.jobId) : undefined,
+    opts.source ? eq(candidates.source, opts.source) : undefined,
+  );
 
-  const rows = await db
+  if (canReadColumn(ctx.role, "candidates", "name")) {
+    return db
+      .select({
+        candidateId: candidates.id,
+        name: candidates.name,
+        email: candidates.email,
+        phone: candidates.phone,
+        source: candidates.source,
+        stage: applications.stage,
+        jobId: applications.jobId,
+        appliedAt: applications.appliedAt,
+      })
+      .from(applications)
+      .innerJoin(candidates, scope.joinApplicationsToCandidates())
+      .where(where)
+      .orderBy(desc(applications.appliedAt));
+  }
+
+  return db
     .select({
       candidateId: candidates.id,
-      name: candidates.name,
-      email: candidates.email,
-      phone: candidates.phone,
       source: candidates.source,
       stage: applications.stage,
       jobId: applications.jobId,
@@ -257,25 +276,8 @@ export async function candidatesInStage(
     })
     .from(applications)
     .innerJoin(candidates, scope.joinApplicationsToCandidates())
-    .where(
-      scope.applicationsWhere(
-        eq(applications.stage, opts.stage),
-        opts.jobId ? eq(applications.jobId, opts.jobId) : undefined,
-        opts.source ? eq(candidates.source, opts.source) : undefined,
-      ),
-    )
+    .where(where)
     .orderBy(desc(applications.appliedAt));
-
-  return rows.map((row) => {
-    if (showPii) return row;
-    return {
-      candidateId: row.candidateId,
-      source: row.source,
-      stage: row.stage,
-      jobId: row.jobId,
-      appliedAt: row.appliedAt,
-    };
-  });
 }
 
 /** List jobs in the workspace with optional status/department filters. */

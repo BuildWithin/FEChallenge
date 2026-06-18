@@ -12,6 +12,7 @@ import {
   timeToHire,
   type AnalyticsCtx,
 } from "@/db/analytics";
+import { redactDisplayColumns, redactRowsForRole } from "@/db/permissions";
 import type { Display, ToolResult } from "./artifact";
 
 const dateRangeSchema = {
@@ -47,10 +48,17 @@ const jobStatusSchema = z
  * stay scoped to this workspace.
  */
 export function buildTools(ctx: AnalyticsCtx) {
-  const result = (rows: ToolResult["rows"], display: Display): ToolResult => ({
-    rows,
-    display,
-  });
+  const result = (rows: ToolResult["rows"], display: Display): ToolResult => {
+    const safeRows = redactRowsForRole(ctx.role, rows);
+    const safeDisplay: Display =
+      display.kind === "table"
+        ? {
+            ...display,
+            columns: redactDisplayColumns(ctx.role, display.columns),
+          }
+        : display;
+    return { rows: safeRows, display: safeDisplay };
+  };
 
   return {
     applicationCountByStage: tool({

@@ -5,7 +5,7 @@ import { DefaultChatTransport } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-import { ROLES } from "@/db/permissions";
+import { ROLES, isPiiRestrictedRole } from "@/db/permissions";
 import type { Display, Row } from "@/agent/artifact";
 import {
   getActiveRole,
@@ -93,6 +93,14 @@ export default function Page() {
                 ))}
               </select>
             </label>
+            {isPiiRestrictedRole(role) && (
+              <span
+                className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 ring-1 ring-amber-200"
+                title="Candidate name, email, and phone are hidden for this role"
+              >
+                PII hidden
+              </span>
+            )}
           </div>
         </header>
 

@@ -82,6 +82,27 @@ describe("analytics queries", () => {
     expect(rows[0]).toHaveProperty("name");
   });
 
+  test("candidatesInStage hides PII for analyst role", async () => {
+    const analyst = { workspaceId: "brightwave", role: "analyst" as const };
+    const rows = await candidatesInStage(analyst, { stage: "interview" });
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row).toHaveProperty("candidateId");
+      expect(row).not.toHaveProperty("name");
+      expect(row).not.toHaveProperty("email");
+      expect(row).not.toHaveProperty("phone");
+    }
+  });
+
+  test("candidatesInStage still returns PII for recruiter role", async () => {
+    const recruiter = { workspaceId: "brightwave", role: "recruiter" as const };
+    const rows = await candidatesInStage(recruiter, { stage: "interview" });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toHaveProperty("name");
+    expect(rows[0]).toHaveProperty("email");
+    expect(rows[0]).toHaveProperty("phone");
+  });
+
   test("cross-workspace isolation: meridian totals differ from brightwave", async () => {
     const bwStages = await applicationCountByStage(brightwave);
     const merStages = await applicationCountByStage(meridian);
@@ -100,6 +121,6 @@ describe("analytics queries", () => {
   test("candidatesInStage scoped to meridian excludes brightwave candidates", async () => {
     const rows = await candidatesInStage(meridian, { stage: "applied" });
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((r) => r.candidateId.startsWith("mer-"))).toBe(true);
+    expect(rows.every((r) => String(r.candidateId).startsWith("mer-"))).toBe(true);
   });
 });
