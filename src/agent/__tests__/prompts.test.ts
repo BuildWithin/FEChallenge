@@ -8,6 +8,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("listJobs");
     expect(prompt).toContain("Multi-step");
     expect(prompt).toContain("Never reference or infer another workspace");
+    expect(prompt).toContain("jobId, source, dateFrom, dateTo, department");
   });
 
   test("analyst prompt forbids PII", () => {

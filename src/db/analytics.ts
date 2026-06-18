@@ -4,6 +4,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   gte,
   lte,
   sql,
@@ -11,6 +12,7 @@ import {
 } from "drizzle-orm";
 
 import { db } from "./client";
+import type { ApplicationFilters } from "./filters";
 import { canReadColumn } from "./permissions";
 import {
   createScope,
@@ -28,12 +30,12 @@ import { applications, candidates, jobs } from "./schema";
  */
 
 export type { AnalyticsCtx, TenantCtx } from "./scoped";
-
-export type ApplicationFilters = DateRangeFilter & {
-  jobId?: string;
-  source?: string;
-  stage?: string;
-};
+export type {
+  AnalyticsFilters,
+  ApplicationFilters,
+  ApplicationSource,
+} from "./filters";
+export { APPLICATION_SOURCES, ANALYTICS_FILTER_DOCS } from "./filters";
 
 export type JobFilters = {
   status?: string;
@@ -72,7 +74,7 @@ function parseDate(value: string | undefined): Date | undefined {
 }
 
 function applicationDateFilters(
-  filters: DateRangeFilter = {},
+  filters: Pick<ApplicationFilters, "dateFrom" | "dateTo"> = {},
 ): Array<SQL | undefined> {
   const from = parseDate(filters.dateFrom);
   const to = parseDate(filters.dateTo);
@@ -80,6 +82,44 @@ function applicationDateFilters(
     from ? gte(applications.appliedAt, from) : undefined,
     to ? lte(applications.appliedAt, to) : undefined,
   ];
+}
+
+function sourceExistsFilter(
+  scope: ReturnType<typeof createScope>,
+  source: ApplicationFilters["source"],
+): SQL | undefined {
+  if (!source) return undefined;
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(candidates)
+      .where(
+        and(
+          eq(candidates.id, applications.candidateId),
+          eq(candidates.workspaceId, scope.ctx.workspaceId),
+          eq(candidates.source, source),
+        ),
+      ),
+  );
+}
+
+function departmentExistsFilter(
+  scope: ReturnType<typeof createScope>,
+  department: ApplicationFilters["department"],
+): SQL | undefined {
+  if (!department) return undefined;
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.id, applications.jobId),
+          eq(jobs.workspaceId, scope.ctx.workspaceId),
+          eq(jobs.department, department),
+        ),
+      ),
+  );
 }
 
 function applicationWhere(
@@ -90,6 +130,20 @@ function applicationWhere(
     filters.jobId ? eq(applications.jobId, filters.jobId) : undefined,
     filters.stage ? eq(applications.stage, filters.stage) : undefined,
     ...applicationDateFilters(filters),
+    sourceExistsFilter(scope, filters.source),
+    departmentExistsFilter(scope, filters.department),
+  );
+}
+
+/** ON clause for LEFT JOIN applications → jobs (jobPerformance). */
+function applicationJoinOn(
+  scope: ReturnType<typeof createScope>,
+  filters: ApplicationFilters = {},
+) {
+  return and(
+    scope.leftJoinApplicationsOn(applicationDateFilters(filters)),
+    filters.jobId ? eq(applications.jobId, filters.jobId) : undefined,
+    sourceExistsFilter(scope, filters.source),
   );
 }
 
@@ -98,17 +152,6 @@ function jobWhere(scope: ReturnType<typeof createScope>, filters: JobFilters = {
     filters.status ? eq(jobs.status, filters.status) : undefined,
     filters.department ? eq(jobs.department, filters.department) : undefined,
   );
-}
-
-function candidateDateFilters(
-  filters: DateRangeFilter = {},
-): Array<SQL | undefined> {
-  const from = parseDate(filters.dateFrom);
-  const to = parseDate(filters.dateTo);
-  return [
-    from ? gte(candidates.createdAt, from) : undefined,
-    to ? lte(candidates.createdAt, to) : undefined,
-  ];
 }
 
 /** Applications grouped by pipeline stage, scoped to the caller's workspace. */
@@ -125,16 +168,17 @@ export async function applicationCountByStage(
     .orderBy(desc(count()));
 }
 
-/** Candidate counts grouped by acquisition source. */
+/** Application counts grouped by candidate acquisition source. */
 export async function candidatesBySource(
   ctx: AnalyticsCtx,
-  opts: DateRangeFilter = {},
+  opts: ApplicationFilters = {},
 ) {
   const scope = createScope(ctx);
   return db
     .select({ source: candidates.source, count: count() })
-    .from(candidates)
-    .where(scope.candidatesWhere(...candidateDateFilters(opts)))
+    .from(applications)
+    .innerJoin(candidates, scope.joinApplicationsToCandidates())
+    .where(applicationWhere(scope, opts))
     .groupBy(candidates.source)
     .orderBy(desc(count()));
 }
@@ -163,24 +207,10 @@ export async function applicationsOverTime(
 /** Average days from application to hire for hired candidates. */
 export async function timeToHire(
   ctx: AnalyticsCtx,
-  opts: ApplicationFilters & { department?: string } = {},
+  opts: ApplicationFilters = {},
 ) {
   const scope = createScope(ctx);
   const daysToHire = sql<number>`extract(epoch from (${applications.updatedAt} - ${applications.appliedAt})) / 86400`;
-  const baseWhere = applicationWhere(scope, { ...opts, stage: "hired" });
-
-  if (opts.department) {
-    return db
-      .select({
-        avgDays: avg(daysToHire),
-        hiredCount: count(),
-      })
-      .from(applications)
-      .innerJoin(jobs, scope.joinApplicationsToJobs())
-      .where(
-        and(baseWhere, eq(jobs.department, opts.department)),
-      );
-  }
 
   return db
     .select({
@@ -188,7 +218,7 @@ export async function timeToHire(
       hiredCount: count(),
     })
     .from(applications)
-    .where(baseWhere);
+    .where(applicationWhere(scope, { ...opts, stage: "hired" }));
 }
 
 /** Pipeline funnel: count, share of total, and step-to-step conversion per stage. */
@@ -254,12 +284,7 @@ export async function sourceEffectiveness(
     })
     .from(applications)
     .innerJoin(candidates, scope.joinApplicationsToCandidates())
-    .where(
-      and(
-        applicationWhere(scope, opts),
-        opts.source ? eq(candidates.source, opts.source) : undefined,
-      ),
-    )
+    .where(applicationWhere(scope, opts))
     .groupBy(candidates.source)
     .orderBy(desc(hiredCount));
 
@@ -324,9 +349,10 @@ export async function pipelineVelocity(
 /** Application counts per job with job metadata. */
 export async function jobPerformance(
   ctx: AnalyticsCtx,
-  opts: JobFilters & DateRangeFilter = {},
+  opts: ApplicationFilters & { status?: string } = {},
 ) {
   const scope = createScope(ctx);
+  const { status, ...filters } = opts;
 
   return db
     .select({
@@ -337,26 +363,23 @@ export async function jobPerformance(
       applicationCount: count(applications.id),
     })
     .from(jobs)
-    .leftJoin(
-      applications,
-      scope.leftJoinApplicationsOn(applicationDateFilters(opts)),
-    )
-    .where(jobWhere(scope, opts))
+    .leftJoin(applications, applicationJoinOn(scope, filters))
+    .where(jobWhere(scope, { status, department: filters.department }))
     .groupBy(jobs.id, jobs.title, jobs.department, jobs.status)
     .orderBy(desc(count(applications.id)));
 }
 
+export type CandidatesInStageOptions = ApplicationFilters & {
+  stage: string;
+};
+
 /** Candidates currently in a given pipeline stage (PII gated by role). */
 export async function candidatesInStage(
   ctx: AnalyticsCtx,
-  opts: { stage: string; jobId?: string; source?: string },
+  opts: CandidatesInStageOptions,
 ) {
   const scope = createScope(ctx);
-  const where = scope.applicationsWhere(
-    eq(applications.stage, opts.stage),
-    opts.jobId ? eq(applications.jobId, opts.jobId) : undefined,
-    opts.source ? eq(candidates.source, opts.source) : undefined,
-  );
+  const where = applicationWhere(scope, opts);
 
   if (canReadColumn(ctx.role, "candidates", "name")) {
     return db

@@ -38,8 +38,52 @@ describe("analytics queries", () => {
     const mer = await candidatesBySource(meridian);
     const bwTotal = bw.reduce((s, r) => s + Number(r.count), 0);
     const merTotal = mer.reduce((s, r) => s + Number(r.count), 0);
-    expect(bwTotal).toBe(18);
-    expect(merTotal).toBe(14);
+    expect(bwTotal).toBe(24);
+    expect(merTotal).toBe(19);
+  });
+
+  test("shared filters narrow application-scoped queries", async () => {
+    const all = await applicationCountByStage(brightwave);
+    const allTotal = all.reduce((s, r) => s + Number(r.count), 0);
+    expect(allTotal).toBe(24);
+
+    const byJob = await applicationCountByStage(brightwave, {
+      jobId: "bw-job-1",
+    });
+    const jobTotal = byJob.reduce((s, r) => s + Number(r.count), 0);
+    expect(jobTotal).toBeGreaterThan(0);
+    expect(jobTotal).toBeLessThan(allTotal);
+
+    const byDept = await applicationCountByStage(brightwave, {
+      department: "Engineering",
+    });
+    expect(byDept.reduce((s, r) => s + Number(r.count), 0)).toBeGreaterThan(0);
+
+    const bySource = await candidatesBySource(brightwave, {
+      source: "linkedin",
+    });
+    expect(bySource).toHaveLength(1);
+    expect(bySource[0].source).toBe("linkedin");
+
+    const byDate = await applicationsOverTime(brightwave, {
+      dateFrom: "2025-02-01",
+      dateTo: "2025-03-01",
+    });
+    const datedTotal = byDate.reduce((s, r) => s + Number(r.count), 0);
+    expect(datedTotal).toBeGreaterThan(0);
+    expect(datedTotal).toBeLessThan(allTotal);
+  });
+
+  test("timeToHire and pipelineVelocity respect department filter", async () => {
+    const eng = await timeToHire(brightwave, { department: "Engineering" });
+    expect(Number(eng[0]?.hiredCount ?? 0)).toBeGreaterThan(0);
+
+    const velocity = await pipelineVelocity(brightwave, {
+      department: "Design",
+    });
+    expect(velocity.reduce((s, r) => s + Number(r.applicationCount), 0)).toBeGreaterThan(
+      0,
+    );
   });
 
   test("applicationsOverTime returns time buckets", async () => {

@@ -14,24 +14,13 @@ import {
   timeToHire,
   type AnalyticsCtx,
 } from "@/db/analytics";
+import {
+  ANALYTICS_FILTER_DOCS,
+  analyticsFilterFields,
+  analyticsFilterSchema,
+} from "@/db/filters";
 import { redactDisplayColumns, redactRowsForRole } from "@/db/permissions";
 import type { Display, ToolResult } from "./artifact";
-
-const dateRangeSchema = {
-  dateFrom: z
-    .string()
-    .optional()
-    .describe("ISO date (YYYY-MM-DD) — include applications on or after this date"),
-  dateTo: z
-    .string()
-    .optional()
-    .describe("ISO date (YYYY-MM-DD) — include applications on or before this date"),
-};
-
-const sourceSchema = z
-  .enum(["referral", "linkedin", "job_board", "agency", "careers_site"])
-  .optional()
-  .describe("Filter to candidates from this acquisition source");
 
 const stageSchema = z
   .enum(["applied", "screen", "interview", "offer", "hired", "rejected"])
@@ -48,6 +37,9 @@ const jobStatusSchema = z
  * Each tool wraps a scoped analytics query. The agent picks tools and passes
  * high-level params; it never writes SQL. Every query receives `ctx` so results
  * stay scoped to this workspace.
+ *
+ * Application analytics tools share one filter shape (see analyticsFilterSchema)
+ * so the model learns a single vocabulary: jobId, source, dateFrom, dateTo, department.
  */
 export function buildTools(ctx: AnalyticsCtx) {
   const result = (rows: ToolResult["rows"], display: Display): ToolResult => {
@@ -75,12 +67,8 @@ export function buildTools(ctx: AnalyticsCtx) {
 
   return {
     applicationCountByStage: tool({
-      description:
-        "Count applications grouped by pipeline stage (applied, screen, interview, offer, hired, rejected). Use for pipeline overview questions. Optionally filter by jobId or date range.",
-      inputSchema: z.object({
-        jobId: z.string().optional().describe("Scope to one job posting"),
-        ...dateRangeSchema,
-      }),
+      description: `Count applications grouped by pipeline stage (applied, screen, interview, offer, hired, rejected). Use for pipeline overview questions. ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema,
       async execute(input) {
         return runQuery("applicationCountByStage", async () => {
           const rows = await applicationCountByStage(ctx, input);
@@ -95,9 +83,8 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     candidatesBySource: tool({
-      description:
-        "Count candidates grouped by acquisition source (referral, linkedin, job_board, agency, careers_site). Use for questions about where candidates come from.",
-      inputSchema: z.object({ ...dateRangeSchema }),
+      description: `Count applications grouped by candidate acquisition source (referral, linkedin, job_board, agency, careers_site). ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema,
       async execute(input) {
         return runQuery("candidatesBySource", async () => {
           const rows = await candidatesBySource(ctx, input);
@@ -105,22 +92,19 @@ export function buildTools(ctx: AnalyticsCtx) {
             kind: "bar",
             x: "source",
             y: "count",
-            title: "Candidates by source",
+            title: "Applications by source",
           });
         });
       },
     }),
 
     applicationsOverTime: tool({
-      description:
-        "Count applications over time in weekly or monthly buckets. Use for volume trends and hiring velocity questions.",
-      inputSchema: z.object({
-        jobId: z.string().optional().describe("Scope to one job posting"),
+      description: `Count applications over time in weekly or monthly buckets. Use for volume trends. ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema.extend({
         granularity: z
           .enum(["month", "week"])
           .optional()
           .describe("Time bucket size (default: month)"),
-        ...dateRangeSchema,
       }),
       async execute(input) {
         return runQuery("applicationsOverTime", async () => {
@@ -136,16 +120,8 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     timeToHire: tool({
-      description:
-        "Recruiting KPI: average days from application (appliedAt) to hire for candidates in the hired stage. Optionally filter by job or department.",
-      inputSchema: z.object({
-        jobId: z.string().optional().describe("Scope to one job posting"),
-        department: z
-          .string()
-          .optional()
-          .describe("Filter to jobs in this department (e.g. Engineering)"),
-        ...dateRangeSchema,
-      }),
+      description: `Recruiting KPI: average days from application (appliedAt) to hire for candidates in the hired stage. ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema,
       async execute(input) {
         return runQuery("timeToHire", async () => {
           const rows = await timeToHire(ctx, input);
@@ -158,15 +134,12 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     stageConversionRates: tool({
-      description:
-        "Recruiting funnel KPI: step conversion through applied → screen → interview → offer → hired. Returns count, share of funnel total, and conversion rate from the previous stage. Use funnelOnly (default true) for the active hiring path.",
-      inputSchema: z.object({
-        jobId: z.string().optional().describe("Scope to one job posting"),
+      description: `Recruiting funnel KPI: step conversion through applied → screen → interview → offer → hired. ${ANALYTICS_FILTER_DOCS} Set funnelOnly (default true) to exclude rejected from funnel totals.`,
+      inputSchema: analyticsFilterSchema.extend({
         funnelOnly: z
           .boolean()
           .optional()
           .describe("Exclude rejected from funnel totals (default: true)"),
-        ...dateRangeSchema,
       }),
       async execute(input) {
         const { funnelOnly = true, ...filters } = input;
@@ -189,13 +162,8 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     sourceEffectiveness: tool({
-      description:
-        "Recruiting KPI: compare acquisition sources by hires vs rejections. Returns total applications, hired/rejected/in-progress counts, and hire/rejection rates per source (referral, linkedin, job_board, agency, careers_site).",
-      inputSchema: z.object({
-        jobId: z.string().optional().describe("Scope to one job posting"),
-        source: sourceSchema,
-        ...dateRangeSchema,
-      }),
+      description: `Recruiting KPI: compare acquisition sources by hires vs rejections with hire and rejection rates. ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema,
       async execute(input) {
         return runQuery("sourceEffectiveness", async () => {
           const rows = await sourceEffectiveness(ctx, input);
@@ -216,12 +184,8 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     pipelineVelocity: tool({
-      description:
-        "Recruiting KPI: average days applications spend at each pipeline stage (appliedAt → updatedAt dwell time). Use for bottlenecks and stage-level velocity questions.",
-      inputSchema: z.object({
-        jobId: z.string().optional().describe("Scope to one job posting"),
-        ...dateRangeSchema,
-      }),
+      description: `Recruiting KPI: average days applications spend at each pipeline stage. ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema,
       async execute(input) {
         return runQuery("pipelineVelocity", async () => {
           const rows = await pipelineVelocity(ctx, input);
@@ -236,15 +200,9 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     jobPerformance: tool({
-      description:
-        "Application counts per job with title, department, and status. Use to compare roles or find which jobs attract the most applicants.",
-      inputSchema: z.object({
+      description: `Application counts per job with title, department, and status. ${ANALYTICS_FILTER_DOCS} Also accepts status (open|closed|draft) to limit which jobs appear.`,
+      inputSchema: analyticsFilterSchema.extend({
         status: jobStatusSchema,
-        department: z
-          .string()
-          .optional()
-          .describe("Filter to jobs in this department"),
-        ...dateRangeSchema,
       }),
       async execute(input) {
         return runQuery("jobPerformance", async () => {
@@ -263,12 +221,9 @@ export function buildTools(ctx: AnalyticsCtx) {
     }),
 
     candidatesInStage: tool({
-      description:
-        "List candidates in a specific pipeline stage. Returns PII (name, email, phone) only for permitted roles; analysts see anonymized candidate IDs. Optionally filter by job or source.",
-      inputSchema: z.object({
+      description: `List candidates in a specific pipeline stage. PII (name, email, phone) only for permitted roles. ${ANALYTICS_FILTER_DOCS}`,
+      inputSchema: analyticsFilterSchema.extend({
         stage: stageSchema,
-        jobId: z.string().optional().describe("Scope to one job posting"),
-        source: sourceSchema,
       }),
       async execute(input) {
         return runQuery("candidatesInStage", async () => {
@@ -283,13 +238,10 @@ export function buildTools(ctx: AnalyticsCtx) {
 
     listJobs: tool({
       description:
-        "List job postings in the workspace with title, department, location, and status. Use to discover job IDs or answer questions about open roles.",
+        "List job postings with title, department, location, and status. Use to discover job IDs before filtering other tools. Optional filters: status (open|closed|draft), department.",
       inputSchema: z.object({
         status: jobStatusSchema,
-        department: z
-          .string()
-          .optional()
-          .describe("Filter to jobs in this department"),
+        department: analyticsFilterFields.department,
       }),
       async execute(input) {
         return runQuery("listJobs", async () => {

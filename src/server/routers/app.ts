@@ -13,20 +13,12 @@ import {
   timeToHire,
   type AnalyticsCtx,
 } from "@/db/analytics";
+import { analyticsFilterInputSchema, analyticsFilterSchema } from "@/db/filters";
 import { db, ensureSchema } from "@/db/client";
 import { getProviderLabel, isMockProvider } from "@/agent/provider";
 import { env } from "@/env";
 import { workspaces } from "@/db/schema";
 import { router, scopedProcedure, publicProcedure } from "../trpc";
-
-const dateRangeInput = {
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
-};
-
-const sourceInput = z
-  .enum(["referral", "linkedin", "job_board", "agency", "careers_site"])
-  .optional();
 
 const stageInput = z.enum([
   "applied",
@@ -67,14 +59,7 @@ export const appRouter = router({
 
   analytics: router({
     applicationsByStage: scopedProcedure
-      .input(
-        z
-          .object({
-            jobId: z.string().optional(),
-            ...dateRangeInput,
-          })
-          .optional(),
-      )
+      .input(analyticsFilterInputSchema)
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) =>
           applicationCountByStage(scoped, input ?? {}),
@@ -82,19 +67,15 @@ export const appRouter = router({
       ),
 
     candidatesBySource: scopedProcedure
-      .input(z.object(dateRangeInput).optional())
+      .input(analyticsFilterInputSchema)
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) => candidatesBySource(scoped, input ?? {})),
       ),
 
     applicationsOverTime: scopedProcedure
       .input(
-        z
-          .object({
-            jobId: z.string().optional(),
-            granularity: z.enum(["month", "week"]).optional(),
-            ...dateRangeInput,
-          })
+        analyticsFilterSchema
+          .extend({ granularity: z.enum(["month", "week"]).optional() })
           .optional(),
       )
       .query(({ ctx, input }) =>
@@ -104,27 +85,15 @@ export const appRouter = router({
       ),
 
     timeToHire: scopedProcedure
-      .input(
-        z
-          .object({
-            jobId: z.string().optional(),
-            department: z.string().optional(),
-            ...dateRangeInput,
-          })
-          .optional(),
-      )
+      .input(analyticsFilterInputSchema)
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) => timeToHire(scoped, input ?? {})),
       ),
 
     stageConversionRates: scopedProcedure
       .input(
-        z
-          .object({
-            jobId: z.string().optional(),
-            funnelOnly: z.boolean().optional(),
-            ...dateRangeInput,
-          })
+        analyticsFilterSchema
+          .extend({ funnelOnly: z.boolean().optional() })
           .optional(),
       )
       .query(({ ctx, input }) =>
@@ -134,15 +103,7 @@ export const appRouter = router({
       ),
 
     sourceEffectiveness: scopedProcedure
-      .input(
-        z
-          .object({
-            jobId: z.string().optional(),
-            source: sourceInput,
-            ...dateRangeInput,
-          })
-          .optional(),
-      )
+      .input(analyticsFilterInputSchema)
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) =>
           sourceEffectiveness(scoped, input ?? {}),
@@ -150,40 +111,21 @@ export const appRouter = router({
       ),
 
     pipelineVelocity: scopedProcedure
-      .input(
-        z
-          .object({
-            jobId: z.string().optional(),
-            ...dateRangeInput,
-          })
-          .optional(),
-      )
+      .input(analyticsFilterInputSchema)
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) => pipelineVelocity(scoped, input ?? {})),
       ),
 
     jobPerformance: scopedProcedure
       .input(
-        z
-          .object({
-            status: jobStatusInput,
-            department: z.string().optional(),
-            ...dateRangeInput,
-          })
-          .optional(),
+        analyticsFilterSchema.extend({ status: jobStatusInput }).optional(),
       )
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) => jobPerformance(scoped, input ?? {})),
       ),
 
     candidatesInStage: scopedProcedure
-      .input(
-        z.object({
-          stage: stageInput,
-          jobId: z.string().optional(),
-          source: sourceInput,
-        }),
-      )
+      .input(analyticsFilterSchema.extend({ stage: stageInput }))
       .query(({ ctx, input }) =>
         withAnalytics(ctx, (scoped) => candidatesInStage(scoped, input)),
       ),
@@ -193,7 +135,7 @@ export const appRouter = router({
         z
           .object({
             status: jobStatusInput,
-            department: z.string().optional(),
+            department: analyticsFilterSchema.shape.department,
           })
           .optional(),
       )
