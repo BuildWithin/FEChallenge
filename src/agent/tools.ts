@@ -20,6 +20,7 @@ import {
   analyticsFilterSchema,
 } from "@/db/filters";
 import { redactDisplayColumns, redactRowsForRole } from "@/db/permissions";
+import { deriveInsights } from "./insights";
 import type { Display, ToolResult } from "./artifact";
 
 const stageSchema = z
@@ -42,7 +43,11 @@ const jobStatusSchema = z
  * so the model learns a single vocabulary: jobId, source, dateFrom, dateTo, department.
  */
 export function buildTools(ctx: AnalyticsCtx) {
-  const result = (rows: ToolResult["rows"], display: Display): ToolResult => {
+  const result = (
+    toolName: string,
+    rows: ToolResult["rows"],
+    display: Display,
+  ): ToolResult => {
     const safeRows = redactRowsForRole(ctx.role, rows);
     const safeDisplay: Display =
       display.kind === "table"
@@ -51,7 +56,11 @@ export function buildTools(ctx: AnalyticsCtx) {
             columns: redactDisplayColumns(ctx.role, display.columns),
           }
         : display;
-    return { rows: safeRows, display: safeDisplay };
+    return {
+      rows: safeRows,
+      display: safeDisplay,
+      insights: deriveInsights(toolName, safeRows),
+    };
   };
 
   async function runQuery<T>(toolName: string, fn: () => Promise<T>): Promise<T> {
@@ -60,7 +69,7 @@ export function buildTools(ctx: AnalyticsCtx) {
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown error";
       throw new Error(
-        `${toolName} failed: ${detail}. Try different filters, verify jobId via listJobs, or use another tool.`,
+        `${toolName} failed: ${detail}. Widen filters (drop jobId or dates), verify jobId via listJobs, or try a different tool.`,
       );
     }
   }
@@ -72,7 +81,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("applicationCountByStage", async () => {
           const rows = await applicationCountByStage(ctx, input);
-          return result(rows, {
+          return result("applicationCountByStage", rows, {
             kind: "bar",
             x: "stage",
             y: "count",
@@ -88,7 +97,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("candidatesBySource", async () => {
           const rows = await candidatesBySource(ctx, input);
-          return result(rows, {
+          return result("candidatesBySource", rows, {
             kind: "bar",
             x: "source",
             y: "count",
@@ -109,7 +118,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("applicationsOverTime", async () => {
           const rows = await applicationsOverTime(ctx, input);
-          return result(rows, {
+          return result("applicationsOverTime", rows, {
             kind: "line",
             x: "period",
             y: "count",
@@ -125,7 +134,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("timeToHire", async () => {
           const rows = await timeToHire(ctx, input);
-          return result(rows, {
+          return result("timeToHire", rows, {
             kind: "table",
             columns: ["avgDays", "hiredCount"],
           });
@@ -148,7 +157,7 @@ export function buildTools(ctx: AnalyticsCtx) {
             ...filters,
             funnelOnly,
           });
-          return result(rows, {
+          return result("stageConversionRates", rows, {
             kind: "table",
             columns: [
               "stage",
@@ -167,7 +176,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("sourceEffectiveness", async () => {
           const rows = await sourceEffectiveness(ctx, input);
-          return result(rows, {
+          return result("sourceEffectiveness", rows, {
             kind: "table",
             columns: [
               "source",
@@ -189,7 +198,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("pipelineVelocity", async () => {
           const rows = await pipelineVelocity(ctx, input);
-          return result(rows, {
+          return result("pipelineVelocity", rows, {
             kind: "bar",
             x: "stage",
             y: "avgDays",
@@ -207,7 +216,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("jobPerformance", async () => {
           const rows = await jobPerformance(ctx, input);
-          return result(rows, {
+          return result("jobPerformance", rows, {
             kind: "table",
             columns: [
               "title",
@@ -231,7 +240,7 @@ export function buildTools(ctx: AnalyticsCtx) {
           const columns = rows[0]
             ? Object.keys(rows[0])
             : ["candidateId", "source", "stage", "jobId", "appliedAt"];
-          return result(rows, { kind: "table", columns });
+          return result("candidatesInStage", rows, { kind: "table", columns });
         });
       },
     }),
@@ -246,7 +255,7 @@ export function buildTools(ctx: AnalyticsCtx) {
       async execute(input) {
         return runQuery("listJobs", async () => {
           const rows = await listJobs(ctx, input);
-          return result(rows, {
+          return result("listJobs", rows, {
             kind: "table",
             columns: ["id", "title", "department", "location", "status"],
           });

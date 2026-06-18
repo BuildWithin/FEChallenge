@@ -18,7 +18,7 @@ import { downloadCsv, rowsToCsv } from "../lib/export-csv";
 
 const PAGE_SIZE = 10;
 
-type ToolOutput = { rows?: Row[]; display?: Display };
+type ToolOutput = { rows?: Row[]; display?: Display; insights?: string[] };
 
 export type ToolPart = {
   type: string;
@@ -84,12 +84,24 @@ export function ToolCall({ part }: { part: unknown }) {
       )}
 
       {phase === "error" && (
-        <p className="mt-2 text-xs text-red-600">
-          {p.errorText ?? "Something went wrong running this query."}
-        </p>
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-red-700">
+            {p.errorText ?? "Something went wrong running this query."}
+          </p>
+          <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-red-600">
+            <li>Try widening filters (drop jobId or date range)</li>
+            <li>Resolve job IDs with listJobs before filtering</li>
+            <li>Ask the copilot to retry with a different tool</li>
+          </ul>
+        </div>
       )}
 
-      {phase === "result" && <ArtifactView output={p.output} toolName={name} />}
+      {phase === "result" && (
+        <>
+          <InsightsCallout insights={p.output?.insights} />
+          <ArtifactView output={p.output} toolName={name} />
+        </>
+      )}
     </div>
   );
 }
@@ -107,6 +119,22 @@ function ToolStatus({ phase }: { phase: ToolPhase }) {
     return <span className="text-xs font-medium text-red-600">Failed</span>;
   }
   return <span className="text-xs font-medium text-emerald-600">Complete</span>;
+}
+
+function InsightsCallout({ insights }: { insights?: string[] }) {
+  if (!insights?.length) return null;
+  return (
+    <div className="mt-3 rounded-md border border-emerald-100 bg-emerald-50/60 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+        Key insights
+      </p>
+      <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs text-emerald-900">
+        {insights.map((line) => (
+          <li key={line}>{line.replace(/\*\*/g, "")}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function ArtifactView({
