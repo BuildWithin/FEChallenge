@@ -90,4 +90,16 @@ describe("analytics queries", () => {
     expect(bwTotal).not.toBe(merTotal);
     expect(merTotal).toBe(19); // 14 candidates + 5 with second applications
   });
+
+  test("no analytics query leaks foreign workspace job IDs", async () => {
+    const rows = await jobPerformance(meridian);
+    expect(rows.every((r) => r.jobId.startsWith("mer-"))).toBe(true);
+    expect(rows.some((r) => r.jobId.startsWith("bw-"))).toBe(false);
+  });
+
+  test("candidatesInStage scoped to meridian excludes brightwave candidates", async () => {
+    const rows = await candidatesInStage(meridian, { stage: "applied" });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.candidateId.startsWith("mer-"))).toBe(true);
+  });
 });

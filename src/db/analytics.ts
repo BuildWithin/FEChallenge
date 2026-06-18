@@ -7,28 +7,27 @@ import {
   gte,
   lte,
   sql,
-  type AnyColumn,
   type SQL,
 } from "drizzle-orm";
 
 import { db } from "./client";
 import { canReadColumn } from "./permissions";
-import type { Role } from "./permissions";
+import {
+  createScope,
+  type AnalyticsCtx,
+  type DateRangeFilter,
+} from "./scoped";
 import { applications, candidates, jobs } from "./schema";
 
 /**
  * Scoped analytics data layer for the copilot.
  *
- * Every query takes `ctx` first so tenant scope cannot be forgotten.
- * All reads are constrained to `ctx.workspaceId` via `scopeWhere`.
+ * Every exported query takes `ctx` first and calls `createScope(ctx)` before
+ * touching the database. All reads go through scoped helpers — never raw
+ * `eq(table.workspaceId, …)` outside src/db/scoped.ts.
  */
 
-export type AnalyticsCtx = { workspaceId: string; role: Role };
-
-export type DateRangeFilter = {
-  dateFrom?: string;
-  dateTo?: string;
-};
+export type { AnalyticsCtx, TenantCtx } from "./scoped";
 
 export type ApplicationFilters = DateRangeFilter & {
   jobId?: string;
@@ -41,6 +40,8 @@ export type JobFilters = {
   department?: string;
 };
 
+export type { DateRangeFilter } from "./scoped";
+
 const STAGE_ORDER = [
   "applied",
   "screen",
@@ -49,18 +50,6 @@ const STAGE_ORDER = [
   "hired",
   "rejected",
 ] as const;
-
-/** The one place tenant scoping lives: AND-s the workspace filter into a query. */
-function scopeWhere(
-  table: { workspaceId: AnyColumn },
-  ctx: AnalyticsCtx,
-  extra: Array<SQL | undefined> = [],
-): SQL {
-  const parts = [eq(table.workspaceId, ctx.workspaceId), ...extra].filter(
-    (p): p is SQL => p !== undefined,
-  );
-  return and(...parts)!;
-}
 
 function parseDate(value: string | undefined): Date | undefined {
   if (!value) return undefined;
@@ -79,22 +68,22 @@ function applicationDateFilters(
   ];
 }
 
-function applicationFilters(
-  ctx: AnalyticsCtx,
+function applicationWhere(
+  scope: ReturnType<typeof createScope>,
   filters: ApplicationFilters = {},
-): SQL {
-  return scopeWhere(applications, ctx, [
+) {
+  return scope.applicationsWhere(
     filters.jobId ? eq(applications.jobId, filters.jobId) : undefined,
     filters.stage ? eq(applications.stage, filters.stage) : undefined,
     ...applicationDateFilters(filters),
-  ]);
+  );
 }
 
-function jobFilters(ctx: AnalyticsCtx, filters: JobFilters = {}): SQL {
-  return scopeWhere(jobs, ctx, [
+function jobWhere(scope: ReturnType<typeof createScope>, filters: JobFilters = {}) {
+  return scope.jobsWhere(
     filters.status ? eq(jobs.status, filters.status) : undefined,
     filters.department ? eq(jobs.department, filters.department) : undefined,
-  ]);
+  );
 }
 
 function candidateDateFilters(
@@ -113,10 +102,11 @@ export async function applicationCountByStage(
   ctx: AnalyticsCtx,
   opts: ApplicationFilters = {},
 ) {
+  const scope = createScope(ctx);
   return db
     .select({ stage: applications.stage, count: count() })
     .from(applications)
-    .where(applicationFilters(ctx, opts))
+    .where(applicationWhere(scope, opts))
     .groupBy(applications.stage)
     .orderBy(desc(count()));
 }
@@ -126,10 +116,11 @@ export async function candidatesBySource(
   ctx: AnalyticsCtx,
   opts: DateRangeFilter = {},
 ) {
+  const scope = createScope(ctx);
   return db
     .select({ source: candidates.source, count: count() })
     .from(candidates)
-    .where(scopeWhere(candidates, ctx, candidateDateFilters(opts)))
+    .where(scope.candidatesWhere(...candidateDateFilters(opts)))
     .groupBy(candidates.source)
     .orderBy(desc(count()));
 }
@@ -139,6 +130,7 @@ export async function applicationsOverTime(
   ctx: AnalyticsCtx,
   opts: ApplicationFilters & { granularity?: "month" | "week" } = {},
 ) {
+  const scope = createScope(ctx);
   const granularity = opts.granularity ?? "month";
   const bucket =
     granularity === "week"
@@ -149,7 +141,7 @@ export async function applicationsOverTime(
   return db
     .select({ period, count: count() })
     .from(applications)
-    .where(applicationFilters(ctx, opts))
+    .where(applicationWhere(scope, opts))
     .groupBy(bucket)
     .orderBy(bucket);
 }
@@ -159,9 +151,9 @@ export async function timeToHire(
   ctx: AnalyticsCtx,
   opts: ApplicationFilters & { department?: string } = {},
 ) {
+  const scope = createScope(ctx);
   const daysToHire = sql<number>`extract(epoch from (${applications.updatedAt} - ${applications.appliedAt})) / 86400`;
-
-  const baseWhere = applicationFilters(ctx, { ...opts, stage: "hired" });
+  const baseWhere = applicationWhere(scope, { ...opts, stage: "hired" });
 
   if (opts.department) {
     return db
@@ -170,13 +162,9 @@ export async function timeToHire(
         hiredCount: count(),
       })
       .from(applications)
-      .innerJoin(jobs, eq(applications.jobId, jobs.id))
+      .innerJoin(jobs, scope.joinApplicationsToJobs())
       .where(
-        and(
-          baseWhere,
-          eq(jobs.workspaceId, ctx.workspaceId),
-          eq(jobs.department, opts.department),
-        ),
+        and(baseWhere, eq(jobs.department, opts.department)),
       );
   }
 
@@ -194,10 +182,11 @@ export async function stageConversionRates(
   ctx: AnalyticsCtx,
   opts: ApplicationFilters = {},
 ) {
+  const scope = createScope(ctx);
   const rows = await db
     .select({ stage: applications.stage, count: count() })
     .from(applications)
-    .where(applicationFilters(ctx, opts))
+    .where(applicationWhere(scope, opts))
     .groupBy(applications.stage);
 
   const total = rows.reduce((sum, r) => sum + Number(r.count), 0);
@@ -227,7 +216,7 @@ export async function jobPerformance(
   ctx: AnalyticsCtx,
   opts: JobFilters & DateRangeFilter = {},
 ) {
-  const dateParts = applicationDateFilters(opts);
+  const scope = createScope(ctx);
 
   return db
     .select({
@@ -240,13 +229,9 @@ export async function jobPerformance(
     .from(jobs)
     .leftJoin(
       applications,
-      and(
-        eq(applications.jobId, jobs.id),
-        eq(applications.workspaceId, ctx.workspaceId),
-        ...dateParts,
-      ),
+      scope.leftJoinApplicationsOn(applicationDateFilters(opts)),
     )
-    .where(jobFilters(ctx, opts))
+    .where(jobWhere(scope, opts))
     .groupBy(jobs.id, jobs.title, jobs.department, jobs.status)
     .orderBy(desc(count(applications.id)));
 }
@@ -256,6 +241,7 @@ export async function candidatesInStage(
   ctx: AnalyticsCtx,
   opts: { stage: string; jobId?: string; source?: string },
 ) {
+  const scope = createScope(ctx);
   const showPii = canReadColumn(ctx.role, "candidates", "name");
 
   const rows = await db
@@ -270,14 +256,13 @@ export async function candidatesInStage(
       appliedAt: applications.appliedAt,
     })
     .from(applications)
-    .innerJoin(candidates, eq(applications.candidateId, candidates.id))
+    .innerJoin(candidates, scope.joinApplicationsToCandidates())
     .where(
-      scopeWhere(applications, ctx, [
+      scope.applicationsWhere(
         eq(applications.stage, opts.stage),
         opts.jobId ? eq(applications.jobId, opts.jobId) : undefined,
         opts.source ? eq(candidates.source, opts.source) : undefined,
-        eq(candidates.workspaceId, ctx.workspaceId),
-      ]),
+      ),
     )
     .orderBy(desc(applications.appliedAt));
 
@@ -295,6 +280,7 @@ export async function candidatesInStage(
 
 /** List jobs in the workspace with optional status/department filters. */
 export async function listJobs(ctx: AnalyticsCtx, opts: JobFilters = {}) {
+  const scope = createScope(ctx);
   return db
     .select({
       id: jobs.id,
@@ -305,6 +291,6 @@ export async function listJobs(ctx: AnalyticsCtx, opts: JobFilters = {}) {
       createdAt: jobs.createdAt,
     })
     .from(jobs)
-    .where(jobFilters(ctx, opts))
+    .where(jobWhere(scope, opts))
     .orderBy(desc(jobs.createdAt));
 }
