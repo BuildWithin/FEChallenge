@@ -14,6 +14,8 @@ import {
   candidatesInStage,
   jobPerformance,
   listJobs,
+  pipelineVelocity,
+  sourceEffectiveness,
   stageConversionRates,
   timeToHire,
 } from "@/db/analytics";
@@ -307,7 +309,19 @@ evalite<QueryLayerCase, Output>(
         {
           input: {
             tool: "stageConversionRates",
-            run: () => stageConversionRates(ctx),
+            run: () => stageConversionRates(ctx, { funnelOnly: true }),
+          },
+        },
+        {
+          input: {
+            tool: "sourceEffectiveness",
+            run: () => sourceEffectiveness(ctx),
+          },
+        },
+        {
+          input: {
+            tool: "pipelineVelocity",
+            run: () => pipelineVelocity(ctx),
           },
         },
         {

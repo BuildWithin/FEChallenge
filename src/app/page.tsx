@@ -16,9 +16,10 @@ import {
 
 const STARTER_PROMPTS = [
   "How does my pipeline look by stage?",
-  "Where are candidates coming from?",
   "What's our average time-to-hire?",
-  "Which jobs have the most applicants?",
+  "Show stage conversion through the hiring funnel",
+  "Which sources produce the most hires vs rejections?",
+  "Where are we slowest in the pipeline?",
 ];
 
 export default function Page() {

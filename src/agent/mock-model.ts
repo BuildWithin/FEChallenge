@@ -118,6 +118,27 @@ function pickTool(tools: FnTool[], userText: string): FnTool {
     if (tool.name === "applicationCountByStage" && /pipeline|by stage/.test(t)) {
       score += 4;
     }
+    if (tool.name === "timeToHire" && /time.to.hire|time-to-hire/.test(t)) {
+      score += 8;
+    }
+    if (
+      tool.name === "stageConversionRates" &&
+      /conversion|funnel|drop.off/.test(t)
+    ) {
+      score += 8;
+    }
+    if (
+      tool.name === "sourceEffectiveness" &&
+      /source|hire|rejection|channel|referral|linkedin/.test(t)
+    ) {
+      score += 6;
+    }
+    if (
+      tool.name === "pipelineVelocity" &&
+      /velocity|slowest|bottleneck|days per stage|dwell/.test(t)
+    ) {
+      score += 8;
+    }
     if (score > bestScore) {
       bestScore = score;
       best = tool;

@@ -7,6 +7,8 @@ import {
   candidatesInStage,
   jobPerformance,
   listJobs,
+  pipelineVelocity,
+  sourceEffectiveness,
   stageConversionRates,
   timeToHire,
   type AnalyticsCtx,
@@ -120,6 +122,7 @@ export const appRouter = router({
         z
           .object({
             jobId: z.string().optional(),
+            funnelOnly: z.boolean().optional(),
             ...dateRangeInput,
           })
           .optional(),
@@ -128,6 +131,35 @@ export const appRouter = router({
         withAnalytics(ctx, (scoped) =>
           stageConversionRates(scoped, input ?? {}),
         ),
+      ),
+
+    sourceEffectiveness: scopedProcedure
+      .input(
+        z
+          .object({
+            jobId: z.string().optional(),
+            source: sourceInput,
+            ...dateRangeInput,
+          })
+          .optional(),
+      )
+      .query(({ ctx, input }) =>
+        withAnalytics(ctx, (scoped) =>
+          sourceEffectiveness(scoped, input ?? {}),
+        ),
+      ),
+
+    pipelineVelocity: scopedProcedure
+      .input(
+        z
+          .object({
+            jobId: z.string().optional(),
+            ...dateRangeInput,
+          })
+          .optional(),
+      )
+      .query(({ ctx, input }) =>
+        withAnalytics(ctx, (scoped) => pipelineVelocity(scoped, input ?? {})),
       ),
 
     jobPerformance: scopedProcedure

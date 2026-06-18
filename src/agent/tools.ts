@@ -8,6 +8,8 @@ import {
   candidatesInStage,
   jobPerformance,
   listJobs,
+  pipelineVelocity,
+  sourceEffectiveness,
   stageConversionRates,
   timeToHire,
   type AnalyticsCtx,
@@ -135,7 +137,7 @@ export function buildTools(ctx: AnalyticsCtx) {
 
     timeToHire: tool({
       description:
-        "Average days from application to hire for candidates in the hired stage. Optionally filter by job or department.",
+        "Recruiting KPI: average days from application (appliedAt) to hire for candidates in the hired stage. Optionally filter by job or department.",
       inputSchema: z.object({
         jobId: z.string().optional().describe("Scope to one job posting"),
         department: z
@@ -157,14 +159,22 @@ export function buildTools(ctx: AnalyticsCtx) {
 
     stageConversionRates: tool({
       description:
-        "Pipeline funnel metrics: count per stage, percentage of total applications, and conversion rate from the previous stage. Use for drop-off and funnel efficiency questions.",
+        "Recruiting funnel KPI: step conversion through applied → screen → interview → offer → hired. Returns count, share of funnel total, and conversion rate from the previous stage. Use funnelOnly (default true) for the active hiring path.",
       inputSchema: z.object({
         jobId: z.string().optional().describe("Scope to one job posting"),
+        funnelOnly: z
+          .boolean()
+          .optional()
+          .describe("Exclude rejected from funnel totals (default: true)"),
         ...dateRangeSchema,
       }),
       async execute(input) {
+        const { funnelOnly = true, ...filters } = input;
         return runQuery("stageConversionRates", async () => {
-          const rows = await stageConversionRates(ctx, input);
+          const rows = await stageConversionRates(ctx, {
+            ...filters,
+            funnelOnly,
+          });
           return result(rows, {
             kind: "table",
             columns: [
@@ -173,6 +183,53 @@ export function buildTools(ctx: AnalyticsCtx) {
               "pctOfTotal",
               "conversionFromPrevious",
             ],
+          });
+        });
+      },
+    }),
+
+    sourceEffectiveness: tool({
+      description:
+        "Recruiting KPI: compare acquisition sources by hires vs rejections. Returns total applications, hired/rejected/in-progress counts, and hire/rejection rates per source (referral, linkedin, job_board, agency, careers_site).",
+      inputSchema: z.object({
+        jobId: z.string().optional().describe("Scope to one job posting"),
+        source: sourceSchema,
+        ...dateRangeSchema,
+      }),
+      async execute(input) {
+        return runQuery("sourceEffectiveness", async () => {
+          const rows = await sourceEffectiveness(ctx, input);
+          return result(rows, {
+            kind: "table",
+            columns: [
+              "source",
+              "totalApplications",
+              "hiredCount",
+              "rejectedCount",
+              "inProgressCount",
+              "hireRate",
+              "rejectionRate",
+            ],
+          });
+        });
+      },
+    }),
+
+    pipelineVelocity: tool({
+      description:
+        "Recruiting KPI: average days applications spend at each pipeline stage (appliedAt → updatedAt dwell time). Use for bottlenecks and stage-level velocity questions.",
+      inputSchema: z.object({
+        jobId: z.string().optional().describe("Scope to one job posting"),
+        ...dateRangeSchema,
+      }),
+      async execute(input) {
+        return runQuery("pipelineVelocity", async () => {
+          const rows = await pipelineVelocity(ctx, input);
+          return result(rows, {
+            kind: "bar",
+            x: "stage",
+            y: "avgDays",
+            title: "Average days per stage",
           });
         });
       },

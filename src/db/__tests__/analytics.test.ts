@@ -8,6 +8,8 @@ import {
   candidatesInStage,
   jobPerformance,
   listJobs,
+  pipelineVelocity,
+  sourceEffectiveness,
   stageConversionRates,
   timeToHire,
 } from "../analytics";
@@ -61,6 +63,45 @@ describe("analytics queries", () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0].stage).toBe("applied");
     expect(rows[0].pctOfTotal).toBeGreaterThan(0);
+  });
+
+  test("stageConversionRates funnelOnly excludes rejected from funnel totals", async () => {
+    const all = await stageConversionRates(brightwave, { funnelOnly: false });
+    const funnel = await stageConversionRates(brightwave, { funnelOnly: true });
+    expect(all.some((r) => r.stage === "rejected")).toBe(true);
+    expect(funnel.some((r) => r.stage === "rejected")).toBe(false);
+    expect(funnel[0].stage).toBe("applied");
+  });
+
+  test("sourceEffectiveness compares hires and rejections by source", async () => {
+    const rows = await sourceEffectiveness(brightwave);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.source).toBeTruthy();
+      expect(row.totalApplications).toBeGreaterThan(0);
+      expect(row.hiredCount + row.rejectedCount + row.inProgressCount).toBe(
+        row.totalApplications,
+      );
+      expect(row.hireRate).toBeGreaterThanOrEqual(0);
+      expect(row.rejectionRate).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test("pipelineVelocity returns average dwell days per stage", async () => {
+    const rows = await pipelineVelocity(brightwave);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].stage).toBe("applied");
+    for (const row of rows) {
+      expect(row.avgDays).toBeGreaterThanOrEqual(0);
+      expect(row.applicationCount).toBeGreaterThan(0);
+    }
+  });
+
+  test("KPI queries stay scoped to workspace", async () => {
+    const merSources = await sourceEffectiveness(meridian);
+    expect(merSources.every((r) => r.totalApplications > 0)).toBe(true);
+    const merVelocity = await pipelineVelocity(meridian);
+    expect(merVelocity.length).toBeGreaterThan(0);
   });
 
   test("jobPerformance returns jobs with application counts", async () => {

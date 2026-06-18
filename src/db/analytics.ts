@@ -51,6 +51,20 @@ const STAGE_ORDER = [
   "rejected",
 ] as const;
 
+/** Active hiring funnel — excludes terminal rejected stage. */
+const FUNNEL_STAGES = [
+  "applied",
+  "screen",
+  "interview",
+  "offer",
+  "hired",
+] as const;
+
+export type StageConversionOptions = ApplicationFilters & {
+  /** When true, funnel metrics cover applied → hired only (excludes rejected). */
+  funnelOnly?: boolean;
+};
+
 function parseDate(value: string | undefined): Date | undefined {
   if (!value) return undefined;
   const d = new Date(value);
@@ -177,10 +191,10 @@ export async function timeToHire(
     .where(baseWhere);
 }
 
-/** Pipeline funnel: count and share of total applications per stage. */
+/** Pipeline funnel: count, share of total, and step-to-step conversion per stage. */
 export async function stageConversionRates(
   ctx: AnalyticsCtx,
-  opts: ApplicationFilters = {},
+  opts: StageConversionOptions = {},
 ) {
   const scope = createScope(ctx);
   const rows = await db
@@ -189,13 +203,20 @@ export async function stageConversionRates(
     .where(applicationWhere(scope, opts))
     .groupBy(applications.stage);
 
-  const total = rows.reduce((sum, r) => sum + Number(r.count), 0);
   const countByStage = new Map(rows.map((r) => [r.stage, Number(r.count)]));
+  const stageOrder = opts.funnelOnly ? FUNNEL_STAGES : STAGE_ORDER;
+  const relevantRows = opts.funnelOnly
+    ? rows.filter((r) =>
+        (FUNNEL_STAGES as readonly string[]).includes(r.stage),
+      )
+    : rows;
+  const total = relevantRows.reduce((sum, r) => sum + Number(r.count), 0);
 
-  return STAGE_ORDER.filter((stage) => countByStage.has(stage)).map(
-    (stage, index) => {
+  return stageOrder
+    .filter((stage) => countByStage.has(stage))
+    .map((stage, index) => {
       const stageCount = countByStage.get(stage) ?? 0;
-      const prevStage = index > 0 ? STAGE_ORDER[index - 1] : null;
+      const prevStage = index > 0 ? stageOrder[index - 1] : null;
       const prevCount = prevStage ? (countByStage.get(prevStage) ?? 0) : null;
 
       return {
@@ -207,7 +228,96 @@ export async function stageConversionRates(
             ? Math.round((stageCount / prevCount) * 1000) / 10
             : null,
       };
-    },
+    });
+}
+
+/**
+ * Source effectiveness: hires vs rejections (and in-progress) by acquisition channel.
+ * Uses application terminal stage — no PII columns.
+ */
+export async function sourceEffectiveness(
+  ctx: AnalyticsCtx,
+  opts: ApplicationFilters = {},
+) {
+  const scope = createScope(ctx);
+  const hiredCount = sql<number>`count(*) filter (where ${applications.stage} = 'hired')`;
+  const rejectedCount = sql<number>`count(*) filter (where ${applications.stage} = 'rejected')`;
+  const inProgressCount = sql<number>`count(*) filter (where ${applications.stage} not in ('hired', 'rejected'))`;
+
+  const rows = await db
+    .select({
+      source: candidates.source,
+      totalApplications: count(),
+      hiredCount,
+      rejectedCount,
+      inProgressCount,
+    })
+    .from(applications)
+    .innerJoin(candidates, scope.joinApplicationsToCandidates())
+    .where(
+      and(
+        applicationWhere(scope, opts),
+        opts.source ? eq(candidates.source, opts.source) : undefined,
+      ),
+    )
+    .groupBy(candidates.source)
+    .orderBy(desc(hiredCount));
+
+  return rows.map((row) => {
+    const total = Number(row.totalApplications);
+    const hired = Number(row.hiredCount);
+    const rejected = Number(row.rejectedCount);
+    const inProgress = Number(row.inProgressCount);
+
+    return {
+      source: row.source,
+      totalApplications: total,
+      hiredCount: hired,
+      rejectedCount: rejected,
+      inProgressCount: inProgress,
+      hireRate: total > 0 ? Math.round((hired / total) * 1000) / 10 : 0,
+      rejectionRate: total > 0 ? Math.round((rejected / total) * 1000) / 10 : 0,
+    };
+  });
+}
+
+/**
+ * Pipeline velocity: average days applications spend at each stage.
+ * Uses updatedAt − appliedAt as dwell time (current schema has no stage history).
+ */
+export async function pipelineVelocity(
+  ctx: AnalyticsCtx,
+  opts: ApplicationFilters = {},
+) {
+  const scope = createScope(ctx);
+  const daysInStage = sql<number>`extract(epoch from (${applications.updatedAt} - ${applications.appliedAt})) / 86400`;
+
+  const rows = await db
+    .select({
+      stage: applications.stage,
+      avgDays: avg(daysInStage),
+      applicationCount: count(),
+    })
+    .from(applications)
+    .where(applicationWhere(scope, opts))
+    .groupBy(applications.stage);
+
+  const byStage = new Map(
+    rows.map((r) => [
+      r.stage,
+      {
+        stage: r.stage,
+        avgDays:
+          r.avgDays != null
+            ? Math.round(Number(r.avgDays) * 10) / 10
+            : 0,
+        applicationCount: Number(r.applicationCount),
+      },
+    ]),
+  );
+
+  return STAGE_ORDER.filter((stage) => byStage.has(stage)).map(
+    (stage) => byStage.get(stage)!,
   );
 }
 
