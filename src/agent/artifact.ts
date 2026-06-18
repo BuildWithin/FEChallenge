@@ -12,4 +12,9 @@ export type Display =
   | { kind: "bar"; x: string; y: string; title: string }
   | { kind: "line"; x: string; y: string; title: string };
 
-export type ToolResult = { rows: Row[]; display: Display };
+export type ToolResult = {
+  rows: Row[];
+  display: Display;
+  /** Deterministic trend lines derived from rows — surfaced in UI and prompts. */
+  insights?: string[];
+};

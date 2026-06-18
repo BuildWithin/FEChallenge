@@ -1,6 +1,5 @@
 import {
   convertToModelMessages,
-  stepCountIs,
   streamText,
   type LanguageModel,
   type UIMessage,
@@ -8,17 +7,20 @@ import {
 
 import { ensureSchema } from "@/db/client";
 import type { Role } from "@/db/permissions";
+import { flattenToolInsights } from "./insights";
+import { buildSystemPrompt } from "./prompts";
 import { buildTools } from "./tools";
-import { getModel, SYSTEM_PROMPT } from "./provider";
+import { getModel } from "./provider";
+import { agentStopConditions, MAX_AGENT_STEPS } from "./stop";
+
+export { MAX_AGENT_STEPS };
 
 /**
  * Runs the analytics copilot for one turn and RETURNS the `streamText` result.
  *
- * The caller decides what to do with it:
- *   - the chat route calls `.toUIMessageStreamResponse()`
- *   - evals/tests `await result.steps` / `.toolCalls` / `.text`
- *
- * The agent loops (orient → query → answer) up to 6 steps via `stopWhen`.
+ * Stop strategy: finish when the model answers after grounded tool data, with
+ * MAX_AGENT_STEPS as a safety cap. prepareStep injects computed insights so
+ * the model summarizes trends, not just raw rows.
  */
 export async function streamCopilot({
   workspaceId,
@@ -29,19 +31,36 @@ export async function streamCopilot({
   workspaceId: string;
   role: Role;
   messages: UIMessage[];
-  /** Override the model — e.g. wrap it with evalite's wrapAISDKModel in evals. */
   model?: LanguageModel;
 }) {
   await ensureSchema();
 
-  // This is a minimal loop: one model, the tools, capped at 6 steps. Owning the
-  // loop is part of the exercise — consider tool-error handling, your stop
-  // strategy, and whether the agent should emit a typed structured answer.
+  const system = buildSystemPrompt(role);
+
   return streamText({
     model,
-    system: SYSTEM_PROMPT,
+    system,
     messages: await convertToModelMessages(messages),
     tools: buildTools({ workspaceId, role }),
-    stopWhen: stepCountIs(6),
+    stopWhen: agentStopConditions,
+    maxRetries: 2,
+    prepareStep: async ({ steps }) => {
+      if (steps.length === 0) return {};
+
+      const last = steps[steps.length - 1];
+      const insightLines = flattenToolInsights(
+        last.toolResults.map((tr) => ({
+          toolName: tr.toolName,
+          output: tr.output,
+        })),
+      );
+
+      if (insightLines.length === 0) return {};
+
+      const hints = insightLines.map((line) => `- ${line}`).join("\n");
+      return {
+        system: `${system}\n\n## Computed insights (cite these in your answer)\n${hints}\n\nEnd with a **Key insights** bullet list using the trends above. If a tool failed, explain what went wrong and suggest next steps — do not invent data.`,
+      };
+    },
   });
 }

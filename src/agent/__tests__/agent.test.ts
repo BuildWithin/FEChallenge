@@ -38,4 +38,5 @@ test("mock model drives real, multi-step tool calls through streamText", async (
 
   expect(totalToolCalls).toBeGreaterThan(0);
   expect(text.trim().length).toBeGreaterThan(0);
+  expect(text).toContain("Key insights");
 });

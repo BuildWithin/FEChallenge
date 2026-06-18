@@ -12,5 +12,8 @@ export default defineConfig({
     resolve: {
       alias: { "@": resolve(process.cwd(), "src") },
     },
+    define: {
+      "process.env.AI_PROVIDER": JSON.stringify(process.env.AI_PROVIDER ?? "mock"),
+    },
   },
 });
