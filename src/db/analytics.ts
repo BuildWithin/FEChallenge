@@ -1,8 +1,8 @@
-import { and, count, desc, eq, inArray, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lte, sql, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { db } from "./client";
 import { canSeePII, type Role } from "./permissions";
-import { applications, candidates, type ApplicationStage, type CandidateSource } from "./schema";
+import { applications, candidates, type ApplicationStage, type CandidateSource, type TimeGranularity } from "./schema";
 
 /**
  * Scoped analytics data layer for the copilot.
@@ -106,6 +106,43 @@ export async function listCandidates(
       .limit(limit);
   }
   return db.select(candidatePublicCols).from(candidates).where(where).limit(limit);
+}
+
+/**
+ * Application volume over time, scoped to the caller's workspace. Buckets
+ * applications by day/week/month on appliedAt and counts each bucket. Buckets
+ * with no applications are simply absent (we don't fill gaps); the line in the
+ * UI connects the buckets that have data. Single table, so scopeWhere covers it.
+ */
+export async function applicationsOverTime(
+  ctx: AnalyticsCtx,
+  opts: { granularity?: TimeGranularity; from?: string; to?: string; jobId?: string } = {},
+) {
+  const granularity = opts.granularity ?? "week";
+  // granularity is a closed enum, bound as a parameter (no SQL injection).
+  const bucket = sql<string>`to_char(date_trunc(${granularity}, ${applications.appliedAt}), 'YYYY-MM-DD')`;
+
+  const extra: Array<SQL | undefined> = [];
+  if (opts.jobId) {
+    extra.push(eq(applications.jobId, opts.jobId));
+  }
+  if (opts.from) {
+    extra.push(gte(applications.appliedAt, new Date(opts.from)));
+  }
+  if (opts.to) {
+    extra.push(lte(applications.appliedAt, new Date(opts.to)));
+  }
+
+  // Group/order by the first select column's ordinal so the bucket expression
+  // (and its bound granularity param) is emitted only once. Repeating the SQL
+  // object rebinds the param each time, and Postgres then fails to match the
+  // GROUP BY to the SELECT.
+  return db
+    .select({ bucket, count: count() })
+    .from(applications)
+    .where(scopeWhere(ctx, applications, extra))
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
 }
 
 /**

@@ -91,3 +91,6 @@ export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
 
 export const CANDIDATE_SOURCES = ["referral", "linkedin", "job_board", "agency", "careers_site"] as const;
 export type CandidateSource = (typeof CANDIDATE_SOURCES)[number];
+
+export const TIME_GRANULARITIES = ["day", "week", "month"] as const;
+export type TimeGranularity = (typeof TIME_GRANULARITIES)[number];

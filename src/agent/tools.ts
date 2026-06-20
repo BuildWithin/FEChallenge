@@ -1,8 +1,8 @@
 import { tool } from "ai";
 import { z, type ZodTypeAny } from "zod";
 
-import { applicationCountByStage, listCandidates, type AnalyticsCtx } from "@/db/analytics";
-import { APPLICATION_STAGES, CANDIDATE_SOURCES } from "@/db/schema";
+import { applicationCountByStage, applicationsOverTime, listCandidates, type AnalyticsCtx } from "@/db/analytics";
+import { APPLICATION_STAGES, CANDIDATE_SOURCES, TIME_GRANULARITIES } from "@/db/schema";
 import { canSeePII } from "@/db/permissions";
 import type { Display, Row, ToolResult } from "./artifact";
 import { optional } from "./schema";
@@ -78,6 +78,26 @@ export function buildTools(ctx: AnalyticsCtx) {
           : ["source", "createdAt"],
       },
       query: (ctx, input) => listCandidates(ctx, input),
+    }),
+
+    applicationsOverTime: analyticsTool({
+      description:
+        "Show application volume over time as a trend line. Buckets applications by day, week or month (default week). Optional filters: a date range or a jobId.",
+      inputSchema: z.object({
+        granularity: optional(z.enum(TIME_GRANULARITIES)),
+        dateRange: optional(
+          z.object({ from: optional(z.string()), to: optional(z.string()) }),
+        ),
+        jobId: optional(z.string()),
+      }),
+      display: { kind: "line", x: "bucket", y: "count", title: "Applications over time" },
+      query: (ctx, { granularity, dateRange, jobId }) =>
+        applicationsOverTime(ctx, {
+          granularity,
+          from: dateRange?.from,
+          to: dateRange?.to,
+          jobId,
+        }),
     }),
   };
 }

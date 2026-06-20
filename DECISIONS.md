@@ -153,11 +153,18 @@ Using AI tools is encouraged. Briefly:
   - Commits.
   - Documentation writing.
   - Major code snippets.
+  - SVG generative UI
 - What the agent did wrong that I caught:
   - The first thing I caught was the agent letting model errors (for example, a
     bad input) reach the UI as a raw error, instead of showing the user a
     friendly message.
   - Duplicated or unused types, or stale small pieces of code.
+  - A query that passed the evals but crashed when it actually ran. In the
+    applications-over-time query the agent reused the same SQL bucket expression
+    in the select, the group by and the order by. Each use rebinds its parameter,
+    so Postgres did not see the group by as matching the select and threw an error.
+    The evals stayed green because they only check that a tool returned rows, not
+    that this query runs, so I caught it by running the query against the real data.
 - What you'd never let it decide on its own:
   - Architectural decisions.
   - Tools.
