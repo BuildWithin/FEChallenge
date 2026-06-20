@@ -20,7 +20,21 @@ that's a good answer, not a gap.
   single big tool, so the model's choice stays easy to read and each return type stays
   simple.
 - **Query layer** — how it's structured and composed.
-- **Tenant scoping** — how you made it impossible to forget as the layer grows.
+- **Tenant scoping** — Every read is tied to one workspace, and I wanted that to be
+  impossible to forget rather than something I must remember each time. Two things from
+  the repo already help: `ctx` carries the workspaceId and is the first argument of every
+  query, so a query cannot even be written without the tenant in hand, and all filtering
+  goes through one helper, `scopeWhere`, which always adds the workspace filter. There is
+  no place where I write the filter by hand and might miss one. What I added is for joins.
+  Before, `scopeWhere` scoped a single table, so the moment a query joins two tenant tables
+  (say applications and candidates) only one side would be filtered and the other could
+  leak. Now it takes every tenant table the query touches and scopes each one in the same
+  call, so all the tenant filters sit together and a forgotten table is easy to spot in
+  review. I kept this as one chokepoint plus review rather than a compiler guarantee. The
+  type still helps a little, since a table passed in must have a `workspaceId` column, so I
+  cannot pass the `workspaces` root table by accident. Making it fully safe at compile time
+  would need a typed query builder around Drizzle, which felt like more complexity than it
+  was worth. A small test covers the key case: a join scopes both tables, not just one.
 - **Permissions** — how you enforce the PII rule by role.
 - **Generative UI** — how tool results become streaming components.
 
@@ -83,9 +97,18 @@ What you deliberately left out and why. What you'd do with another day.
 
 Using AI tools is encouraged. Briefly:
 
-- What you delegated.
-- The first thing the agent did wrong that I catched, was avoiding model errors (for example, using a bad input) to reach the UI friendly.
-- What you'd never let it decide on its own.
+- What you delegated:
+  - Commits.
+  - Documentation writing.
+  - Major code snippets.
+- What the agent did wrong that I caught:
+  - The first thing I caught was the agent letting model errors (for example, a
+    bad input) reach the UI as a raw error, instead of showing the user a
+    friendly message.
+  - Duplicated or unused types, or stale small pieces of code.
+- What you'd never let it decide on its own:
+  - Architectural decisions.
+  - Tools.
 
 ## Hours
 

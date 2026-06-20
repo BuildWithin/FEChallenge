@@ -24,16 +24,25 @@ import { applications } from "./schema";
 
 export type AnalyticsCtx = { workspaceId: string; role: Role };
 
-/** The one place tenant scoping lives: AND-s the workspace filter into a query. */
-function scopeWhere(
-  table: { workspaceId: AnyColumn },
+type TenantTable = { workspaceId: AnyColumn };
+
+/**
+ * The one place tenant scoping lives. Scopes EVERY tenant-owned table the query
+ * touches (the driving table and every joined table), so a join cannot be
+ * written with one side unscoped. Pass a single table or the full list.
+ *
+ * `ctx` is first to match every analytics function: a query can't even be
+ * expressed without the tenant scope, so it can't be forgotten.
+ */
+export function scopeWhere(
   ctx: AnalyticsCtx,
+  tables: TenantTable | TenantTable[],
   extra: Array<SQL | undefined> = [],
 ): SQL {
-  const parts = [eq(table.workspaceId, ctx.workspaceId), ...extra].filter(
-    (p): p is SQL => p !== undefined,
-  );
-  // Always has at least the workspace filter, so it's never undefined.
+  const list = Array.isArray(tables) ? tables : [tables];
+  const scopes = list.map((t) => eq(t.workspaceId, ctx.workspaceId));
+  const parts = [...scopes, ...extra].filter((p): p is SQL => p !== undefined);
+  // Always has at least one workspace predicate, so it's never undefined.
   return and(...parts)!;
 }
 
@@ -52,7 +61,7 @@ export async function applicationCountByStage(
   return db
     .select({ stage: applications.stage, count: count() })
     .from(applications)
-    .where(scopeWhere(applications, ctx, extra))
+    .where(scopeWhere(ctx, applications, extra))
     .groupBy(applications.stage)
     .orderBy(desc(count()));
 }
