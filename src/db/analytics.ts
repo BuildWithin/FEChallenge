@@ -1,8 +1,8 @@
 import { and, count, desc, eq, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { db } from "./client";
-import type { Role } from "./permissions";
-import { applications } from "./schema";
+import { canSeePII, type Role } from "./permissions";
+import { applications, candidates } from "./schema";
 
 /**
  * Scoped analytics data layer for the copilot.
@@ -44,6 +44,47 @@ export function scopeWhere(
   const parts = [...scopes, ...extra].filter((p): p is SQL => p !== undefined);
   // Always has at least one workspace predicate, so it's never undefined.
   return and(...parts)!;
+}
+
+// The PII split for candidates. PII keys MUST match PII_COLUMNS.candidates
+// (a test enforces this so they can't drift).
+const candidatePublicCols = {
+  id: candidates.id,
+  source: candidates.source,
+  createdAt: candidates.createdAt,
+};
+export const candidatePiiCols = {
+  name: candidates.name,
+  email: candidates.email,
+  phone: candidates.phone,
+};
+
+/**
+ * Candidates for this workspace, projected by role: an analyst gets the public
+ * columns only (no name/email/phone are even SELECTed), recruiter/admin get PII too.
+ * The return type is the union of the two shapes, so a caller cannot read PII without
+ * narrowing to the full shape, and analyst rows never satisfy that narrowing.
+ */
+export async function listCandidates(
+  ctx: AnalyticsCtx,
+  opts: { limit?: number } = {},
+) {
+  const limit = opts.limit ?? 20;
+  const where = scopeWhere(ctx, candidates);
+  
+  if (canSeePII(ctx.role)) {
+    return db
+      .select({ ...candidatePublicCols, ...candidatePiiCols })
+      .from(candidates)
+      .where(where)
+      .limit(limit);
+  }
+
+  return db
+      .select(candidatePublicCols)
+      .from(candidates)
+      .where(where)
+      .limit(limit);
 }
 
 /**

@@ -35,7 +35,21 @@ that's a good answer, not a gap.
   cannot pass the `workspaces` root table by accident. Making it fully safe at compile time
   would need a typed query builder around Drizzle, which felt like more complexity than it
   was worth. A small test covers the key case: a join scopes both tables, not just one.
-- **Permissions** — how you enforce the PII rule by role.
+- **Permissions** — An analyst never sees a candidate's name, email
+  or phone, while a recruiter or admin can. I enforce it in two layers. At runtime the
+  candidate query selects the PII columns only when the role is allowed, so for an analyst
+  those columns are never even fetched. On top of that I get a type
+  guarantee: the query returns one of two row shapes, a public one without PII and a full
+  one with it, so to read a name the code has to first prove it has the full shape, and an
+  analyst's rows never have it. So reading PII off an analyst row is a compile error. I was
+  honest with myself about the limit. The role is a runtime value (it comes from a header),
+  so the types cannot automatically know that an analyst means no PII at the call site,
+  and once the rows cross into the generic tool result type that information is gone anyway.
+  I did not want to chase that with heavy generics or overloads that would force a role check
+  at every call site, so the type protection lives where it counts, in the query projection,
+  and from the tool boundary onward I rely on the runtime guarantee plus the eval. The list
+  of PII columns lives in one place (`PII_COLUMNS`), and a small test makes sure the projection
+  cannot drift from it.
 - **Generative UI** — how tool results become streaming components.
 
 ## Model & agent
