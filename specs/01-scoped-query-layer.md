@@ -1,6 +1,6 @@
 # Spec 01 — Scoped query layer  **[HARD REQUIREMENT]**
 
-**Status:** Draft · **Depends on:** — · **Estimate:** ~75m (largest spec)
+**Status:** Done · **Depends on:** — · **Estimate:** ~75m (largest spec)
 
 ## Goal
 Tenant scoping and PII gating are enforced *by construction* in the query layer — a
@@ -47,13 +47,14 @@ key the role may not read — because the column is never selected, not stripped
 Tool wiring (Spec 02), UI, agent prompt. No new schema/migrations.
 
 ## Acceptance (`pnpm test`, calling fns directly — no model)
-- [ ] **Tenant:** with `{ workspaceId: "brightwave" }` every fn returns zero `mer-*` rows;
+- [x] **Tenant:** with `{ workspaceId: "brightwave" }` every fn returns zero `mer-*` rows;
       with `{ workspaceId: "meridian" }` zero `bw-*` rows. (Seeded counts: 18 vs 14 candidates.)
-- [ ] **PII hidden:** `listCandidates` as `analyst` → rows have **no** `name`/`email`/`phone`
+- [x] **PII hidden:** `listCandidates` as `analyst` → rows have **no** `name`/`email`/`phone`
       keys.
-- [ ] **PII shown:** same call as `recruiter` and `admin` → those keys are present.
-- [ ] **Regression catch:** reverting `candidateSelection` (or the workspace filter) turns at
-      least one test red.
+- [x] **PII shown:** same call as `recruiter` and `admin` → those keys are present.
+- [x] **Regression catch:** reverting `candidateSelection` (re-adding PII for analyst) turns 2
+      tests red; dropping the workspace filter in `scopeWhere` turns 5 red. Both verified, then
+      reverted.
 
 ## Files
 `src/db/permissions.ts`, `src/db/analytics.ts`, `src/db/analytics.test.ts` (new)
