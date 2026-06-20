@@ -94,3 +94,6 @@ export type CandidateSource = (typeof CANDIDATE_SOURCES)[number];
 
 export const TIME_GRANULARITIES = ["day", "week", "month"] as const;
 export type TimeGranularity = (typeof TIME_GRANULARITIES)[number];
+
+export const JOB_STATUSES = ["open", "closed", "draft"] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];

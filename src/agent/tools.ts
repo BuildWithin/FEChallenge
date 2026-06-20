@@ -1,8 +1,8 @@
 import { tool } from "ai";
 import { z, type ZodTypeAny } from "zod";
 
-import { applicationCountByStage, applicationsOverTime, listCandidates, type AnalyticsCtx } from "@/db/analytics";
-import { APPLICATION_STAGES, CANDIDATE_SOURCES, TIME_GRANULARITIES } from "@/db/schema";
+import { applicationCountByStage, applicationsOverTime, jobsOverview, listCandidates, type AnalyticsCtx } from "@/db/analytics";
+import { APPLICATION_STAGES, CANDIDATE_SOURCES, JOB_STATUSES, TIME_GRANULARITIES } from "@/db/schema";
 import { canSeePII } from "@/db/permissions";
 import type { Display, Row, ToolResult } from "./artifact";
 import { optional } from "./schema";
@@ -98,6 +98,17 @@ export function buildTools(ctx: AnalyticsCtx) {
           to: dateRange?.to,
           jobId,
         }),
+    }),
+
+    jobsOverview: analyticsTool({
+      description:
+        "List the jobs (roles/openings) in this workspace with each job's application counts broken down by stage. Optional filter: status (open, closed, draft). Use it to see all roles at once, or to find a job's id from its title before filtering another tool by that job.",
+      inputSchema: z.object({ status: optional(z.enum(JOB_STATUSES)) }),
+      display: {
+        kind: "table",
+        columns: ["title", "status", "applied", "screen", "interview", "offer", "hired", "rejected", "total"],
+      },
+      query: (ctx, { status }) => jobsOverview(ctx, { status }),
     }),
   };
 }

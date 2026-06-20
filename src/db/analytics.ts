@@ -2,7 +2,7 @@ import { and, count, desc, eq, gte, inArray, lte, sql, type AnyColumn, type SQL 
 
 import { db } from "./client";
 import { canSeePII, type Role } from "./permissions";
-import { applications, candidates, type ApplicationStage, type CandidateSource, type TimeGranularity } from "./schema";
+import { applications, candidates, jobs, type ApplicationStage, type CandidateSource, type JobStatus, type TimeGranularity } from "./schema";
 
 /**
  * Scoped analytics data layer for the copilot.
@@ -143,6 +143,47 @@ export async function applicationsOverTime(
     .where(scopeWhere(ctx, applications, extra))
     .groupBy(sql`1`)
     .orderBy(sql`1`);
+}
+
+/**
+ * Jobs in this workspace with their application counts pivoted by stage, plus a
+ * total. Surfaces each job's id and title so the model can turn a job title into
+ * a jobId for the other tools. A LEFT JOIN keeps jobs that have no applications
+ * (they come back as zeros). Both tenant tables are scoped through scopeWhere:
+ * jobs in the WHERE, applications in the JOIN's ON so the LEFT JOIN is preserved.
+ */
+export async function jobsOverview(
+  ctx: AnalyticsCtx,
+  opts: { status?: JobStatus } = {},
+) {
+  // count(applications.id) is null-safe: a job with no applications has a single
+  // left-joined NULL row, which neither the FILTER counts nor the total counts.
+  const stageCount = (stage: ApplicationStage) =>
+    sql<number>`count(${applications.id}) filter (where ${applications.stage} = ${stage})`.mapWith(Number);
+
+  const statusExtra = opts.status ? [eq(jobs.status, opts.status)] : [];
+
+  return db
+    .select({
+      id: jobs.id,
+      title: jobs.title,
+      status: jobs.status,
+      applied: stageCount("applied"),
+      screen: stageCount("screen"),
+      interview: stageCount("interview"),
+      offer: stageCount("offer"),
+      hired: stageCount("hired"),
+      rejected: stageCount("rejected"),
+      total: sql<number>`count(${applications.id})`.mapWith(Number),
+    })
+    .from(jobs)
+    .leftJoin(
+      applications,
+      and(eq(applications.jobId, jobs.id), scopeWhere(ctx, applications)),
+    )
+    .where(scopeWhere(ctx, jobs, statusExtra))
+    .groupBy(jobs.id, jobs.title, jobs.status)
+    .orderBy(jobs.createdAt);
 }
 
 /**
