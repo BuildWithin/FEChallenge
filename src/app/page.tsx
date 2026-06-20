@@ -185,12 +185,6 @@ export default function Page() {
 
 // ---------------------------------------------------------------------------
 // Tool-call rendering.
-//
-// TODO(candidate): this is a deliberately bare stub. Each tool returns
-// `{ rows, display }` where `display.kind` is "table" | "bar" | "line". Turn
-// these into real, streaming generative UI — render bar/line charts, show the
-// "calling…" → "result" transition nicely, handle empty/error states. Make it
-// something you'd ship.
 // ---------------------------------------------------------------------------
 type ToolPart = {
   type: string;
@@ -211,56 +205,316 @@ function ToolCall({ part }: { part: unknown }) {
   const hasToolError = done && p.output != null && "error" in p.output;
   const hasData = done && p.output != null && "rows" in p.output;
 
-  return (
-    <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
-      <div className="font-medium text-gray-600">
-        {name}{" "}
-        <span className="font-normal text-gray-400">
-          {done ? "· result" : "· calling…"}
-        </span>
+  if (!done) {
+    return (
+      <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
+        <span className="font-medium text-gray-500">{name}</span>
+        <span className="text-gray-400"> · calling…</span>
       </div>
-      {hasToolError && (
-        <p className="mt-1 text-gray-400">Couldn&rsquo;t load this data.</p>
-      )}
-      {hasData && (
-        <RowsTable output={p.output as { rows: Row[]; display?: Display }} />
-      )}
+    );
+  }
+
+  if (hasToolError) {
+    return (
+      <div className="rounded-md border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400">
+        Couldn&rsquo;t load this data.
+      </div>
+    );
+  }
+
+  if (hasData) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <ToolResultView output={p.output as { rows: Row[]; display: Display }} />
+        <div className="border-t border-gray-100 px-4 py-1.5 text-xs text-gray-400">
+          {name}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// ToolResultView — switches on display.kind; owns the empty-state guard.
+// ---------------------------------------------------------------------------
+function ToolResultView({ output }: { output: { rows: Row[]; display: Display } }) {
+  const { rows, display } = output;
+
+  if (rows.length === 0) {
+    return (
+      <p className="px-4 py-6 text-sm text-gray-400">No data for this view.</p>
+    );
+  }
+
+  if (display.kind === "bar") return <BarChart rows={rows} display={display} />;
+  if (display.kind === "line") return <LineChart rows={rows} display={display} />;
+  return <DataTable rows={rows} columns={display.columns} />;
+}
+
+// ---------------------------------------------------------------------------
+// SVG chart layout constants (shared by bar + line)
+// ---------------------------------------------------------------------------
+const VW = 540;
+const MT = 28;
+const MR = 20;
+const MB = 62;
+const ML = 48;
+const CW = VW - ML - MR; // 472
+const CH = 196;
+const VH = MT + CH + MB; // 286
+
+// ---------------------------------------------------------------------------
+// BarChart — hand-rolled SVG vertical bars
+// ---------------------------------------------------------------------------
+function BarChart({
+  rows,
+  display,
+}: {
+  rows: Row[];
+  display: Extract<Display, { kind: "bar" }>;
+}) {
+  const values = rows.map((r) => Number(r[display.y]) || 0);
+  const max = Math.max(...values, 1);
+  const n = rows.length;
+  const slotW = CW / n;
+  const bW = Math.max(slotW * 0.55, 4);
+  const bOffset = (slotW - bW) / 2;
+  const rotateLabels = n > 7;
+
+  return (
+    <div className="px-4 pt-4 pb-2">
+      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" aria-label={display.title}>
+        {/* Title */}
+        <text
+          x={VW / 2}
+          y={MT - 10}
+          textAnchor="middle"
+          style={{ fontSize: 13, fontWeight: 600, fill: "#374151" }}
+        >
+          {display.title}
+        </text>
+
+        {/* Baseline */}
+        <line
+          x1={ML}
+          y1={MT + CH}
+          x2={ML + CW}
+          y2={MT + CH}
+          stroke="#e5e7eb"
+          strokeWidth={1}
+        />
+
+        {/* Bars + labels */}
+        {rows.map((row, i) => {
+          const val = values[i];
+          const bH = Math.max((val / max) * CH, val > 0 ? 2 : 0);
+          const bX = ML + i * slotW + bOffset;
+          const bY = MT + CH - bH;
+          const labelX = ML + (i + 0.5) * slotW;
+          const labelY = MT + CH + 14;
+
+          return (
+            <g key={i}>
+              <rect
+                x={bX}
+                y={bY}
+                width={bW}
+                height={bH}
+                rx={2}
+                fill="#6366f1"
+                className="bar-grow"
+              />
+              {/* value above bar */}
+              <text
+                x={bX + bW / 2}
+                y={bY - 4}
+                textAnchor="middle"
+                style={{ fontSize: 10, fill: "#6b7280" }}
+              >
+                {val.toLocaleString()}
+              </text>
+              {/* category label */}
+              {rotateLabels ? (
+                <text
+                  x={labelX}
+                  y={labelY}
+                  transform={`rotate(-40,${labelX},${labelY})`}
+                  textAnchor="end"
+                  style={{ fontSize: 10, fill: "#9ca3af" }}
+                >
+                  {String(row[display.x] ?? "")}
+                </text>
+              ) : (
+                <text
+                  x={labelX}
+                  y={labelY}
+                  textAnchor="middle"
+                  style={{ fontSize: 11, fill: "#9ca3af" }}
+                >
+                  {String(row[display.x] ?? "")}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
 
-function RowsTable({ output }: { output?: { rows?: Row[]; display?: Display } }) {
-  const rows = output?.rows ?? [];
-  if (rows.length === 0) return <p className="mt-1 text-gray-400">No rows.</p>;
+// ---------------------------------------------------------------------------
+// LineChart — hand-rolled SVG polyline
+// ---------------------------------------------------------------------------
+function LineChart({
+  rows,
+  display,
+}: {
+  rows: Row[];
+  display: Extract<Display, { kind: "line" }>;
+}) {
+  const values = rows.map((r) => Number(r[display.y]) || 0);
+  const max = Math.max(...values, 1);
+  const n = rows.length;
 
-  const display = output?.display;
-  const columns =
-    display && display.kind === "table"
-      ? display.columns
-      : Object.keys(rows[0]);
+  const pts = rows.map((_, i) => ({
+    x: ML + (n > 1 ? (i / (n - 1)) * CW : CW / 2),
+    y: MT + CH - (values[i] / max) * CH,
+  }));
+
+  const polyline = pts.map((p) => `${p.x},${p.y}`).join(" ");
+  const midVal = Math.round(max / 2);
+  const rotateLabels = n > 8;
 
   return (
-    <table className="mt-2 w-full border-collapse text-left">
-      <thead>
-        <tr className="text-gray-400">
-          {columns.map((c) => (
-            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 8).map((row, i) => (
-          <tr key={i} className="text-gray-600">
+    <div className="px-4 pt-4 pb-2">
+      <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" aria-label={display.title}>
+        {/* Title */}
+        <text
+          x={VW / 2}
+          y={MT - 10}
+          textAnchor="middle"
+          style={{ fontSize: 13, fontWeight: 600, fill: "#374151" }}
+        >
+          {display.title}
+        </text>
+
+        {/* Y reference lines */}
+        {([max, midVal, 0] as const).map((refVal, i) => {
+          const ry = MT + CH - (refVal / max) * CH;
+          return (
+            <g key={i}>
+              <line
+                x1={ML}
+                y1={ry}
+                x2={ML + CW}
+                y2={ry}
+                stroke="#f3f4f6"
+                strokeWidth={1}
+              />
+              <text
+                x={ML - 6}
+                y={ry + 4}
+                textAnchor="end"
+                style={{ fontSize: 10, fill: "#9ca3af" }}
+              >
+                {refVal.toLocaleString()}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Baseline */}
+        <line
+          x1={ML}
+          y1={MT + CH}
+          x2={ML + CW}
+          y2={MT + CH}
+          stroke="#e5e7eb"
+          strokeWidth={1}
+        />
+
+        {/* Line */}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke="#6366f1"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          pathLength="1"
+          className="line-draw"
+        />
+
+        {/* Dots */}
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={3} fill="#6366f1" />
+        ))}
+
+        {/* X labels */}
+        {rows.map((row, i) => {
+          const lx = pts[i].x;
+          const ly = MT + CH + 14;
+          return rotateLabels ? (
+            <text
+              key={i}
+              x={lx}
+              y={ly}
+              transform={`rotate(-40,${lx},${ly})`}
+              textAnchor="end"
+              style={{ fontSize: 10, fill: "#9ca3af" }}
+            >
+              {String(row[display.x] ?? "")}
+            </text>
+          ) : (
+            <text
+              key={i}
+              x={lx}
+              y={ly}
+              textAnchor="middle"
+              style={{ fontSize: 10, fill: "#9ca3af" }}
+            >
+              {String(row[display.x] ?? "")}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DataTable — renders display.columns as headers, rows as cells
+// ---------------------------------------------------------------------------
+function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
+  return (
+    <div className="overflow-x-auto px-4 pb-4 pt-3">
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr>
             {columns.map((c) => (
-              <td key={c} className="border-b border-gray-50 py-1 pr-2">
-                {String(row[c] ?? "")}
-              </td>
+              <th
+                key={c}
+                className="border-b border-gray-200 py-2 pr-4 text-xs font-medium uppercase tracking-wide text-gray-500"
+              >
+                {c}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.slice(0, 8).map((row, i) => (
+            <tr key={i} className="border-b border-gray-50 last:border-0">
+              {columns.map((c) => (
+                <td key={c} className="py-2 pr-4 text-gray-700">
+                  {String(row[c] ?? "")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -58,7 +58,20 @@ that's a good answer, not a gap.
   and from the tool boundary onward I rely on the runtime guarantee plus the eval. The list
   of PII columns lives in one place (`PII_COLUMNS`), and a small test makes sure the projection
   cannot drift from it.
-- **Generative UI** — how tool results become streaming components.
+- **Generative UI** — Each tool returns `{ rows, display }`, and the tool decides the
+  display, not the model and not the UI. The page only reads `display.kind` and renders:
+  a table, a bar chart or a line chart. I built the two charts as plain SVG instead
+  of pulling in a charting library, because the shapes are simple and I would rather keep
+  the dependency surface small and the rendering easy to read. The result is rendered while
+  the agent streams, following the tool-part lifecycle: while the tool runs the user sees a
+  small "calling" placeholder, and when the data arrives it turns into the chart or table.
+  I handle the states that would otherwise look broken: an empty result shows a calm "no
+  data" line rather than an empty chart, a tool error shows a muted note rather than a red
+  block, and a call that the model retried and recovered leaves no card behind. One thing I
+  was careful about is that the UI never reintroduces PII: it renders only the columns the
+  tool hands it, so when an analyst's rows come back without name, email or phone, there is
+  no column there to show. The PII decision stays upstream in the query, the UI just draws
+  what it is given.
 
 ## Model & agent
 
