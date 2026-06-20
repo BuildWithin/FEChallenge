@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z, type ZodTypeAny } from "zod";
 
-import { applicationCountByStage, applicationsOverTime, jobsOverview, listCandidates, type AnalyticsCtx } from "@/db/analytics";
+import { applicationCountByStage, applicationsBySource, applicationsOverTime, jobsOverview, listCandidates, type AnalyticsCtx } from "@/db/analytics";
 import { APPLICATION_STAGES, CANDIDATE_SOURCES, JOB_STATUSES, TIME_GRANULARITIES } from "@/db/schema";
 import { canSeePII } from "@/db/permissions";
 import type { Display, Row, ToolResult } from "./artifact";
@@ -109,6 +109,20 @@ export function buildTools(ctx: AnalyticsCtx) {
         columns: ["title", "status", "applied", "screen", "interview", "offer", "hired", "rejected", "total"],
       },
       query: (ctx, { status }) => jobsOverview(ctx, { status }),
+    }),
+
+    applicationsBySource: analyticsTool({
+      description:
+        "Show where applications are coming from: count applications grouped by candidate source (referral, linkedin, job_board, agency, careers_site) as a bar chart. Optional filters: a date range or a jobId.",
+      inputSchema: z.object({
+        dateRange: optional(
+          z.object({ from: optional(z.string()), to: optional(z.string()) }),
+        ),
+        jobId: optional(z.string()),
+      }),
+      display: { kind: "bar", x: "source", y: "count", title: "Applications by source" },
+      query: (ctx, { dateRange, jobId }) =>
+        applicationsBySource(ctx, { from: dateRange?.from, to: dateRange?.to, jobId }),
     }),
   };
 }

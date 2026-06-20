@@ -11,14 +11,14 @@ that's a good answer, not a gap.
 ## Architecture & key decisions
 
 - **Tool catalog** — Apart from the `applicationCountByStage` example the repo already
-  ships, I plan to build four tools: `listCandidates` (the one that shows the PII
-  gating), `jobsOverview` (which surfaces each job id so the model can turn a job title
-  into an id for the other tools), `applicationsOverTime` and `applicationsBySource`.
-  All of them take optional inputs with sensible defaults and closed enums, so the model
-  can call any tool with an empty object, and each tool decides its own display instead
-  of leaving that choice to the model. I preferred one tool per type of question over a
-  single big tool, so the model's choice stays easy to read and each return type stays
-  simple.
+  ships, I built four tools: `listCandidates` (the one that shows the PII gating, a
+  table), `jobsOverview` (which surfaces each job id so the model can turn a job title
+  into an id for the other tools, a table), `applicationsOverTime` (a line) and
+  `applicationsBySource` (a bar). All of them take optional inputs with sensible defaults
+  and closed enums, so the model can call any tool with an empty object, and each tool
+  decides its own display instead of leaving that choice to the model. I preferred one
+  tool per type of question over a single big tool, so the model's choice stays easy to
+  read and each return type stays simple.
 - **Query layer** — All the database access for the copilot lives in one module,
   `analytics.ts`, and nothing else touches the database. The repo set this shape and I
   kept it: every function takes `ctx` first and returns plain rows. I add one function per

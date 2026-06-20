@@ -187,6 +187,36 @@ export async function jobsOverview(
 }
 
 /**
+ * Applications grouped by the candidate's source (referral, linkedin, ...), scoped
+ * to the caller's workspace. source lives on candidates, so this joins applications
+ * -> candidates; both tenant tables are scoped together via the array form of
+ * scopeWhere. Sources with no applications simply do not appear.
+ */
+export async function applicationsBySource(
+  ctx: AnalyticsCtx,
+  opts: { from?: string; to?: string; jobId?: string } = {},
+) {
+  const extra: Array<SQL | undefined> = [];
+  if (opts.jobId) {
+    extra.push(eq(applications.jobId, opts.jobId));
+  }
+  if (opts.from) {
+    extra.push(gte(applications.appliedAt, new Date(opts.from)));
+  }
+  if (opts.to) {
+    extra.push(lte(applications.appliedAt, new Date(opts.to)));
+  }
+
+  return db
+    .select({ source: candidates.source, count: count() })
+    .from(applications)
+    .innerJoin(candidates, eq(applications.candidateId, candidates.id))
+    .where(scopeWhere(ctx, [applications, candidates], extra))
+    .groupBy(candidates.source)
+    .orderBy(desc(count()));
+}
+
+/**
  * REFERENCE QUERY: applications grouped by pipeline stage, scoped to the
  * caller's workspace. Use it as the template for the rest of the layer.
  *
