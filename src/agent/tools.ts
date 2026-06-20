@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   applicationCountByStage,
+  applicationsOverTime,
   candidateSelection,
   candidatesBySource,
   jobsOverview,
@@ -106,6 +107,32 @@ export function buildTools(ctx: AnalyticsCtx) {
             x: "stage",
             y: "count",
             title: "Applications by stage",
+          });
+        });
+      },
+    }),
+
+    applicationsOverTime: tool({
+      description:
+        "Count applications by ISO week, ordered over time. Use for questions about application trends, changes over time, or weekly application volume. Pass a jobId only when the user asks about a specific job.",
+      inputSchema: z.object({
+        jobId: z
+          .string()
+          .optional()
+          .describe(
+            "Scope the trend to one job id. Omit entirely unless the user asks about a specific job; never pass an empty string.",
+          ),
+      }),
+      async execute({ jobId }) {
+        return safe("applicationsOverTime", async () => {
+          const rows = await applicationsOverTime(ctx, {
+            jobId: jobId || undefined,
+          });
+          return result(rows, {
+            kind: "line",
+            x: "week",
+            y: "count",
+            title: "Applications over time",
           });
         });
       },

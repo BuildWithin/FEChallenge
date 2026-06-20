@@ -18,6 +18,7 @@ import {
   ArtifactLoading,
   ToolArtifact,
 } from "./tool-artifact";
+import { cleanAssistantText } from "./assistant-text";
 
 export default function Page() {
   const { activeWorkspace, setActiveWorkspace, role, setRole } = useTenant();
@@ -59,21 +60,21 @@ export default function Page() {
   }
 
   return (
-    <main className="mx-auto grid h-screen max-w-6xl grid-cols-[1fr_320px] gap-4 p-4">
+    <main className="mx-auto grid h-dvh w-full max-w-6xl grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-4 lg:p-4">
       {/* Conversation column */}
-      <section className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white">
-        <header className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <div>
+      <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
+          <div className="min-w-0">
             <h1 className="text-lg font-semibold">ATS Analytics Copilot</h1>
             <p className="text-xs text-gray-500">
               Chat with this workspace&rsquo;s recruiting data.
             </p>
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <label className="flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-3 text-sm">
+            <label className="flex min-w-0 items-center gap-1.5">
               <span className="text-gray-500">Workspace</span>
               <select
-                className="rounded border border-gray-300 px-2 py-1 text-sm"
+                className="min-w-0 max-w-40 rounded border border-gray-300 px-2 py-1 text-sm"
                 value={activeWorkspace}
                 onChange={(e) => setActiveWorkspace(e.target.value)}
               >
@@ -84,10 +85,10 @@ export default function Page() {
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-1.5">
+            <label className="flex min-w-0 items-center gap-1.5">
               <span className="text-gray-500">Role</span>
               <select
-                className="rounded border border-gray-300 px-2 py-1 text-sm"
+                className="min-w-0 max-w-28 rounded border border-gray-300 px-2 py-1 text-sm"
                 value={role}
                 onChange={(e) => setRole(e.target.value as (typeof ROLES)[number])}
               >
@@ -101,7 +102,7 @@ export default function Page() {
           </div>
         </header>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {messages.length === 0 && (
             <p className="text-sm text-gray-400">
               Ask about this workspace &mdash; e.g. &ldquo;How does my pipeline
@@ -117,6 +118,20 @@ export default function Page() {
                 ({ part }) =>
                   part.type === "text" || part.type.startsWith("tool-"),
               );
+            const textParts = visibleParts.filter(
+              ({ part }) => part.type === "text",
+            );
+            const firstTextIndex = textParts[0]?.originalIndex;
+            const assistantText =
+              message.role === "assistant"
+                ? cleanAssistantText(
+                    textParts
+                      .map(({ part }) =>
+                        part.type === "text" ? part.text : "",
+                      )
+                      .join("\n\n"),
+                  )
+                : "";
             const orderedParts =
               message.role === "assistant"
                 ? [
@@ -128,22 +143,26 @@ export default function Page() {
                 : visibleParts;
 
             return (
-              <div key={message.id} className="space-y-2">
+              <div key={message.id} className="min-w-0 space-y-2">
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
                   {message.role}
                 </div>
                 {orderedParts.map(({ part, originalIndex }) => {
                   if (part.type === "text") {
+                    if (
+                      message.role === "assistant" &&
+                      originalIndex !== firstTextIndex
+                    ) {
+                      return null;
+                    }
                     const text =
-                      message.role === "assistant"
-                        ? cleanAssistantText(part.text)
-                        : part.text;
+                      message.role === "assistant" ? assistantText : part.text;
                     if (!text) return null;
 
                     return (
                       <p
                         key={originalIndex}
-                        className="whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
+                        className="break-words whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
                       >
                         {text}
                       </p>
@@ -163,10 +182,10 @@ export default function Page() {
 
         <form
           onSubmit={submit}
-          className="flex items-center gap-2 border-t border-gray-200 px-4 py-3"
+          className="flex min-w-0 items-center gap-2 border-t border-gray-200 px-4 py-3"
         >
           <input
-            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
             placeholder="Ask the analytics copilot…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -182,7 +201,7 @@ export default function Page() {
       </section>
 
       {/* Side panel: a reference scoped read via tRPC (pipeline by stage). */}
-      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto">
+      <aside className="hidden min-h-0 min-w-0 flex-col gap-4 overflow-y-auto lg:flex">
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="mb-2 text-sm font-semibold">Pipeline (this workspace)</h2>
           {pipeline.data && pipeline.data.length > 0 ? (
@@ -211,16 +230,6 @@ type ToolPart = {
   errorText?: string;
 };
 
-function cleanAssistantText(text: string) {
-  return text
-    .replace(/!\[[^\]]*]\(\s*data:image\/[^\r\n)]*(?:\)|$)/gi, "")
-    .split("\n")
-    .filter((line) => !/data:image\//i.test(line))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function ToolCall({ part }: { part: unknown }) {
   const p = part as ToolPart;
   const name = p.type.replace(/^tool-/, "");
@@ -230,7 +239,7 @@ function ToolCall({ part }: { part: unknown }) {
 
   return (
     <div
-      className={`rounded-lg border px-3 py-3 text-xs shadow-sm transition-colors ${
+      className={`min-w-0 overflow-hidden rounded-lg border px-3 py-3 text-xs shadow-sm transition-colors ${
         errored ? "border-red-200 bg-red-50/30" : "border-gray-200 bg-white"
       }`}
     >

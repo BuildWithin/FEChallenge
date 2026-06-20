@@ -11,6 +11,8 @@ type BarChartProps = {
   title: string;
 };
 
+type LineChartProps = BarChartProps;
+
 const numberFormatter = new Intl.NumberFormat("en", {
   maximumFractionDigits: 2,
 });
@@ -96,9 +98,18 @@ export function ToolArtifact({ output }: { output?: ToolResult }) {
     );
   }
 
-  const columns =
-    display.kind === "table" ? display.columns : [display.x, display.y];
-  return <DataTable rows={rows} columns={columns} />;
+  if (display.kind === "line") {
+    return (
+      <LineChart
+        rows={rows}
+        x={display.x}
+        y={display.y}
+        title={display.title}
+      />
+    );
+  }
+
+  return <DataTable rows={rows} columns={display.columns} />;
 }
 
 export function DataTable({
@@ -176,7 +187,7 @@ export function BarChart({ rows, x, y, title }: BarChartProps) {
   );
 
   return (
-    <figure className="mt-3 rounded-md border border-gray-200 bg-white p-3">
+    <figure className="mt-3 max-w-full overflow-hidden rounded-md border border-gray-200 bg-white p-3">
       <figcaption id={titleId} className="mb-1 text-sm font-semibold text-gray-800">
         {title}
       </figcaption>
@@ -184,7 +195,7 @@ export function BarChart({ rows, x, y, title }: BarChartProps) {
         role="img"
         aria-labelledby={titleId}
         viewBox={`0 0 ${width} ${height}`}
-        className="h-auto w-full min-w-[30rem]"
+        className="block h-auto w-full"
       >
         {ticks.map((tick, index) => {
           const tickX = left + (plotWidth * index) / 4;
@@ -245,6 +256,130 @@ export function BarChart({ rows, x, y, title }: BarChartProps) {
             </g>
           );
         })}
+      </svg>
+    </figure>
+  );
+}
+
+export function LineChart({ rows, x, y, title }: LineChartProps) {
+  const titleId = useId();
+  if (rows.length === 0) return <EmptyArtifact />;
+
+  const values = rows.map((row) => {
+    const rawValue = Number(row[y]);
+    return {
+      label: String(row[x] ?? "Unknown"),
+      value: Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0,
+    };
+  });
+
+  const width = 720;
+  const height = 240;
+  const left = 52;
+  const right = 24;
+  const top = 14;
+  const bottom = 42;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const maximum = Math.max(...values.map((item) => item.value), 0);
+  const scaleMaximum = maximum || 1;
+  const tickCount =
+    Number.isInteger(scaleMaximum) && scaleMaximum <= 4
+      ? scaleMaximum + 1
+      : 5;
+  const ticks = Array.from({ length: tickCount }, (_, index) =>
+    (scaleMaximum * index) / (tickCount - 1),
+  );
+  const points = values.map((item, index) => ({
+    ...item,
+    px:
+      values.length === 1
+        ? left + plotWidth / 2
+        : left + (plotWidth * index) / (values.length - 1),
+    py: top + plotHeight - (item.value / scaleMaximum) * plotHeight,
+  }));
+  const labelEvery = Math.max(1, Math.ceil((values.length - 1) / 5));
+  const lastPointIndex = points.length - 1;
+
+  return (
+    <figure className="mt-3 max-w-full overflow-hidden rounded-md border border-gray-200 bg-white p-3">
+      <figcaption id={titleId} className="mb-1 text-sm font-semibold text-gray-800">
+        {title}
+      </figcaption>
+      <svg
+        role="img"
+        aria-labelledby={titleId}
+        viewBox={`0 0 ${width} ${height}`}
+        className="block h-auto w-full"
+      >
+        {ticks.map((tick, index) => {
+          const tickY =
+            top + plotHeight - (plotHeight * index) / (tickCount - 1);
+          return (
+            <g key={index}>
+              <line
+                x1={left}
+                x2={width - right}
+                y1={tickY}
+                y2={tickY}
+                stroke="currentColor"
+                className="text-gray-100"
+              />
+              <text
+                x={left - 10}
+                y={tickY + 4}
+                textAnchor="end"
+                className="fill-gray-400 text-[11px]"
+              >
+                {numberFormatter.format(tick)}
+              </text>
+            </g>
+          );
+        })}
+
+        {points.length > 1 && (
+          <polyline
+            points={points.map((point) => `${point.px},${point.py}`).join(" ")}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            className="text-gray-800"
+          />
+        )}
+
+        {points.map((point, index) => (
+          <g key={`${point.label}-${index}`}>
+            <title>{`${point.label}: ${numberFormatter.format(point.value)}`}</title>
+            <circle
+              cx={point.px}
+              cy={point.py}
+              r={3.5}
+              className="fill-white stroke-gray-800"
+              strokeWidth={3}
+            />
+            {(index === 0 ||
+              index === lastPointIndex ||
+              (index % labelEvery === 0 &&
+                index <= lastPointIndex - labelEvery)) && (
+              <text
+                x={point.px}
+                y={height - 10}
+                textAnchor={
+                  index === 0
+                    ? "start"
+                    : index === lastPointIndex
+                      ? "end"
+                      : "middle"
+                }
+                className="fill-gray-500 text-[11px]"
+              >
+                {point.label}
+              </text>
+            )}
+          </g>
+        ))}
       </svg>
     </figure>
   );

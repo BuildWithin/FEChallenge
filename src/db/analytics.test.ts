@@ -3,6 +3,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import {
+  applicationCountByStage,
+  applicationsOverTime,
   candidateSelection,
   candidatesBySource,
   jobsOverview,
@@ -137,6 +139,37 @@ describe("tenant scoping", () => {
 
     expect(total(await candidatesBySource(BW))).toBe(BW_CANDIDATES);
     expect(total(await candidatesBySource(MER))).toBe(MER_CANDIDATES);
+  });
+
+  it("applicationsOverTime counts only the caller's workspace", async () => {
+    const total = (rows: { count: number }[]) =>
+      rows.reduce((sum, row) => sum + Number(row.count), 0);
+    const applicationTotal = async (ctx: AnalyticsCtx) =>
+      total(await applicationCountByStage(ctx));
+
+    expect(total(await applicationsOverTime(BW))).toBe(await applicationTotal(BW));
+    expect(total(await applicationsOverTime(MER))).toBe(await applicationTotal(MER));
+  });
+});
+
+describe("applicationsOverTime", () => {
+  it("returns chronological ISO-week buckets", async () => {
+    const rows = await applicationsOverTime(BW);
+    const weeks = rows.map((row) => row.week);
+
+    expect(rows.length).toBeGreaterThan(1);
+    expect(weeks.every((week) => /^\d{4}-W\d{2}$/.test(week))).toBe(true);
+    expect(weeks).toEqual([...weeks].sort());
+  });
+
+  it("optionally filters to one job", async () => {
+    const jobId = "bw-job-1";
+    const rows = await applicationsOverTime(BW, { jobId });
+    const stageRows = await applicationCountByStage(BW, { jobId });
+    const total = (values: { count: number }[]) =>
+      values.reduce((sum, row) => sum + Number(row.count), 0);
+
+    expect(total(rows)).toBe(total(stageRows));
   });
 });
 

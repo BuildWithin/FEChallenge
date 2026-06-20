@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   inArray,
+  sql,
   type AnyColumn,
   type SQL,
 } from "drizzle-orm";
@@ -65,6 +66,22 @@ export async function applicationCountByStage(
     .where(scopeWhere(applications, ctx, extra))
     .groupBy(applications.stage)
     .orderBy(desc(count()));
+}
+
+/** Applications grouped into ISO weeks, oldest first, scoped to the workspace. */
+export async function applicationsOverTime(
+  ctx: AnalyticsCtx,
+  opts: { jobId?: string } = {},
+): Promise<{ week: string; count: number }[]> {
+  const extra = opts.jobId ? [eq(applications.jobId, opts.jobId)] : [];
+  const week = sql<string>`to_char(date_trunc('week', ${applications.appliedAt}), 'IYYY-"W"IW')`;
+
+  return db
+    .select({ week, count: count() })
+    .from(applications)
+    .where(scopeWhere(applications, ctx, extra))
+    .groupBy(week)
+    .orderBy(week);
 }
 
 /** A candidate row as projected for the UI; PII keys may be absent (see below). */
