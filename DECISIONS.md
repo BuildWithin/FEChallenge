@@ -19,7 +19,15 @@ that's a good answer, not a gap.
   of leaving that choice to the model. I preferred one tool per type of question over a
   single big tool, so the model's choice stays easy to read and each return type stays
   simple.
-- **Query layer** — how it's structured and composed.
+- **Query layer** — All the database access for the copilot lives in one module,
+  `analytics.ts`, and nothing else touches the database. The repo set this shape and I
+  kept it: every function takes `ctx` first and returns plain rows. I add one function per
+  type of question, the same way I add one tool per question, so each return type stays
+  small and easy to read. The queries are display-agnostic, they only return rows, and the
+  tool that wraps them decides how to render. The agent never writes SQL, it just calls a
+  tool with high-level params. Keeping every read in this one layer, behind shared helpers,
+  is also what lets me enforce the two hard rules in a single place instead of scattering
+  them across tools: tenant scoping and PII gating, each described in its own note below.
 - **Tenant scoping** — Every read is tied to one workspace, and I wanted that to be
   impossible to forget rather than something I must remember each time. Two things from
   the repo already help: `ctx` carries the workspaceId and is the first argument of every
@@ -100,8 +108,25 @@ first place.
 
 ## Benchmarks
 
-What your tenant-isolation and permission checks actually assert, and how you know
-they catch the real thing.
+I have two layers of checks. At the query layer there are unit tests: one proves a join
+scopes every table it touches (both workspace filters show up in the generated SQL), and
+the PII ones prove an analyst's rows come back without name, email or phone while a
+recruiter's include them, plus a small test that ties the PII columns to a single source
+so the projection cannot drift from it.
+
+On top of those, two agent-level evals run the whole copilot loop, offline on the mock
+model. The first asks for candidates as an analyst and fails if any returned row carries
+PII. The second asks the same question as each workspace and fails if a returned
+candidate id does not belong to the workspace that asked.
+
+For the tenant eval the trusted list of ids comes from a direct query against the table, not
+from the same function under test, so a broken scope cannot hide by comparing a buggy
+query against itself. I also checked both evals by breaking the code on purpose: dropping
+the PII branch turns the PII eval red, and removing the scope from the candidate query
+turns the isolation eval red. After reverting, both go green again. One thing I learned
+from the data is that the two workspaces share the same candidate names, so the isolation
+eval checks ids rather than names, since the id is the only field that is actually unique
+per workspace.
 
 ## Trade-offs & cuts
 
