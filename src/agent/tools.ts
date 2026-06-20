@@ -1,8 +1,9 @@
 import { tool } from "ai";
-import { z } from "zod";
+import { z, type ZodTypeAny } from "zod";
 
 import { applicationCountByStage, type AnalyticsCtx } from "@/db/analytics";
-import type { Display, ToolResult } from "./artifact";
+import type { Display, Row, ToolResult } from "./artifact";
+import { optional } from "./schema";
 
 /**
  * The copilot's tool catalog — what the agent can actually do.
@@ -17,27 +18,46 @@ import type { Display, ToolResult } from "./artifact";
  * `{ rows, display }` — see src/agent/artifact.ts.
  */
 export function buildTools(ctx: AnalyticsCtx) {
-  const result = (rows: ToolResult["rows"], display: Display): ToolResult => ({
-    rows,
+  /**
+   * Wraps a query in a tool with consistent error handling: catches any throw,
+   * logs the real error server-side, and returns a sanitized { error } so the
+   * model can narrate to the user. Tenant scoping stays in the query layer.
+   */
+  function analyticsTool<TSchema extends ZodTypeAny>({
+    description,
+    inputSchema,
     display,
-  });
+    query,
+  }: {
+    description: string;
+    inputSchema: TSchema;
+    display: Display;
+    query: (ctx: AnalyticsCtx, input: z.infer<TSchema>) => Promise<Row[]>;
+  }) {
+    return tool({
+      description,
+      inputSchema,
+      async execute(input): Promise<ToolResult> {
+        try {
+          const rows = await query(ctx, input);
+          return { rows, display };
+        } catch (err) {
+          console.error("[tool error]", err);
+          return { error: "I couldn't retrieve that data right now." };
+        }
+      },
+    });
+  }
 
   return {
-    // REFERENCE TOOL — a scoped query + typed input + a display hint the UI
+    // REFERENCE TOOL, a scoped query + typed input + a display hint the UI
     // renders. Use it as the template for the tools you add.
-    applicationCountByStage: tool({
+    applicationCountByStage: analyticsTool({
       description:
         "Count applications grouped by pipeline stage (applied, screen, interview, offer, hired, rejected). Pass a jobId to scope to one job.",
-      inputSchema: z.object({ jobId: z.string().optional() }),
-      async execute({ jobId }) {
-        const rows = await applicationCountByStage(ctx, { jobId });
-        return result(rows, {
-          kind: "bar",
-          x: "stage",
-          y: "count",
-          title: "Applications by stage",
-        });
-      },
+      inputSchema: z.object({ jobId: optional(z.string()) }),
+      display: { kind: "bar", x: "stage", y: "count", title: "Applications by stage" },
+      query: (ctx, { jobId }) => applicationCountByStage(ctx, { jobId }),
     }),
 
     // TODO(candidate): design and add the tools that make this a genuinely

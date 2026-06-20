@@ -46,19 +46,29 @@ longest path I expect is the two-tool chain, where the model asks `jobsOverview`
 back a `jobId` and then filters another tool with it; even if each of those calls needs
 one retry, that is five steps, so six leaves a little room. I thought about making the
 cap grow when the model keeps failing and decided against it, because a model that keeps
-erroring is exactly the runaway the cap is there to stop. For tool errors, the plan (not
-built yet) is to send a short, safe message back when the arguments are wrong so the
-model can retry, and to fail closed when a query itself breaks, without leaking the
-scope, the SQL or any PII into the conversation.
+erroring is exactly the runaway the cap is there to stop.
 
-Something I'm planning but haven't done yet is to let the tool inputs also accept `null`,
-not only an absent value. When an input like `jobId` is optional, the model sometimes
-sends `null` instead of leaving it out, and for a filter both mean the same thing. Rather
-than widening the schema with `.nullish()`, I'll use `z.preprocess(v => v ?? undefined,
-...)`, so the model still sees a clean and narrow schema (just an optional string) while
-the `null` is turned into `undefined` before validation. This way a `null` doesn't cause
-a validation error and waste a step, and I also avoid telling the model that `null` is a
-valid value in the first place.
+For tool errors I keep it safe by default: if a query breaks, the user never sees
+anything technical, only a clear message. Bad-args failures are recovered silently.
+Concretely: the `analyticsTool` factory wraps every `execute` in a try/catch. On throw
+it logs the real error server-side and returns a sanitized `{ error }` to the model,
+which then narrates a calm explanation to the user.
+The UI shows a muted note, not a red block. Bad-args validation failures (pre-execute)
+are handled by the `z.preprocess` helper described below, so they rarely surface at all;
+when they do the model retries silently and the user sees nothing. For anything outside
+the tools (stream breaks, gateway errors, the loop hitting its cap without a final answer)
+there are two `onError` nets: one that logs server-side, one that returns a single
+friendly fallback string to the client. Nothing internal (stack traces, SQL, tenant
+scope, PII) ever reaches the conversation or the UI.
+
+Tool inputs also accept `null`, not only an absent value. When an input like `jobId` is
+optional, the model sometimes sends `null` instead of leaving it out, and for a filter
+both mean the same thing. Rather than widening the schema with `.nullish()`, I use
+`z.preprocess(v => v ?? undefined, ...)` (see `src/agent/schema.ts`), so the model still
+sees a clean and narrow schema (just an optional string) while the `null` is turned into
+`undefined` before validation. This way a `null` doesn't cause a validation error and
+waste a step, and I also avoid telling the model that `null` is a valid value in the
+first place.
 
 ## Benchmarks
 
@@ -74,7 +84,7 @@ What you deliberately left out and why. What you'd do with another day.
 Using AI tools is encouraged. Briefly:
 
 - What you delegated.
-- Where the agent was wrong and you caught it.
+- The first thing the agent did wrong that I catched, was avoiding model errors (for example, using a bad input) to reach the UI friendly.
 - What you'd never let it decide on its own.
 
 ## Hours

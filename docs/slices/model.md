@@ -60,15 +60,36 @@ typed answer on top of it.
 
 ## Tool-error handling
 
-The mock never errors, but a real model against real queries will, and the two kinds of
-error want opposite handling. When the model sends bad arguments, that's recoverable —
-hand it back a short, safe message ("jobId must be a string or omitted") so its next
-step is a corrected retry, which is the only error worth spending a step on. When a
-query or something under it actually throws, retrying won't help, so the tool fails
-closed: the UI shows a safe message through its existing `output-error` / `errorText`
-path and the loop doesn't keep hammering it. Either way, nothing internal — a stack
-trace, the SQL, the tenant scope, a PII value — ever goes back into the conversation.
-The isolation and PII evals hold me to that.
+Errors have two readers — the model and the human — and each gets a different message.
+"Fail closed" still applies, but it means *degrade gracefully and safely* (no leak of
+stack traces, SQL, tenant scope, or PII to either reader), not abort the turn.
+
+**Bad args (pre-execute).** The AI SDK validates tool arguments against the schema
+before calling `execute`. A validation failure is recoverable: the SDK surfaces it and
+the model retries on its next step — silently, from the user's perspective. The UI must
+show nothing for this; no red block, no `errorText`. Task A's `z.preprocess` helper
+([src/agent/schema.ts](../../src/agent/schema.ts)) eliminates the most common trigger
+(`{"jobId": null}`) so these failures rarely happen at all.
+
+**Query/execution failure (in-execute).** The `analyticsTool` factory in
+[src/agent/tools.ts](../../src/agent/tools.ts) wraps every `execute` in a try/catch:
+on throw it logs the real error server-side and returns a sanitized `{ error: string }`
+— no exception text, no SQL, no scope. The model receives this, reads it as a signal,
+and narrates to the user in plain language ("I couldn't pull that — want me to try
+differently?"), biased by the system prompt to avoid repeating the identical failing
+call. The UI renders the `{ error }` output as a muted neutral note; the model's text
+reply carries the actual explanation.
+
+**Outside the tools.** Gateway errors, stream breaks, or the loop exhausting its cap
+without a final narration step are caught by two `onError` nets:
+- `streamText({ onError })` in [src/agent/run.ts](../../src/agent/run.ts) — logs the
+  full error server-side (user never sees it).
+- `toUIMessageStreamResponse({ onError })` in
+  [src/app/api/chat/route.ts](../../src/app/api/chat/route.ts) — returns the friendly
+  fallback string to the client: *"Something went wrong on our side. Please try again."*
+
+This is the only place a fixed fallback string appears; it covers the out-of-steps
+case and any unhandled stream break. Nothing internal ever reaches the client.
 
 ## Tolerant tool inputs (null vs. omitted)
 

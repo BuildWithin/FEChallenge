@@ -10,5 +10,10 @@ export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
 
   const result = await streamCopilot({ workspaceId, role, messages });
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    onError(error) {
+      console.error("[chat route error]", error);
+      return "Something went wrong on our side. Please try again.";
+    },
+  });
 }
