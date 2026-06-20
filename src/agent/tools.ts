@@ -1,7 +1,9 @@
 import { tool } from "ai";
 import { z, type ZodTypeAny } from "zod";
 
-import { applicationCountByStage, type AnalyticsCtx } from "@/db/analytics";
+import { applicationCountByStage, listCandidates, type AnalyticsCtx } from "@/db/analytics";
+import { APPLICATION_STAGES, CANDIDATE_SOURCES } from "@/db/schema";
+import { canSeePII } from "@/db/permissions";
 import type { Display, Row, ToolResult } from "./artifact";
 import { optional } from "./schema";
 
@@ -60,8 +62,23 @@ export function buildTools(ctx: AnalyticsCtx) {
       query: (ctx, { jobId }) => applicationCountByStage(ctx, { jobId }),
     }),
 
-    // TODO(candidate): design and add the tools that make this a genuinely
-    // useful analytics copilot for this workspace's recruiting data.
+    listCandidates: analyticsTool({
+      description:
+        "List candidates in this workspace. Optional filters: application stage, candidate source, or jobId. Returns a table of candidates.",
+      inputSchema: z.object({
+        stage: optional(z.enum(APPLICATION_STAGES)),
+        source: optional(z.enum(CANDIDATE_SOURCES)),
+        jobId: optional(z.string()),
+        limit: optional(z.number().int().positive()),
+      }),
+      display: {
+        kind: "table",
+        columns: canSeePII(ctx.role)
+          ? ["name", "email", "phone", "source", "createdAt"]
+          : ["source", "createdAt"],
+      },
+      query: (ctx, input) => listCandidates(ctx, input),
+    }),
   };
 }
 

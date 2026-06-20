@@ -1,8 +1,8 @@
-import { and, count, desc, eq, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, inArray, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { db } from "./client";
 import { canSeePII, type Role } from "./permissions";
-import { applications, candidates } from "./schema";
+import { applications, candidates, type ApplicationStage, type CandidateSource } from "./schema";
 
 /**
  * Scoped analytics data layer for the copilot.
@@ -67,11 +67,37 @@ export const candidatePiiCols = {
  */
 export async function listCandidates(
   ctx: AnalyticsCtx,
-  opts: { limit?: number } = {},
+  opts: {
+    stage?: ApplicationStage;
+    source?: CandidateSource;
+    jobId?: string;
+    limit?: number;
+  } = {},
 ) {
-  const limit = opts.limit ?? 20;
-  const where = scopeWhere(ctx, candidates);
-  
+  const limit = Math.min(opts.limit ?? 20, 100);
+
+  const filters: Array<SQL | undefined> = [];
+  if (opts.source) filters.push(eq(candidates.source, opts.source));
+
+  // stage/jobId live on applications -> "candidate has >=1 matching application",
+  // expressed as a SCOPED subquery (applications scoped via scopeWhere).
+  const appPreds: SQL[] = [];
+  if (opts.stage) appPreds.push(eq(applications.stage, opts.stage));
+  if (opts.jobId) appPreds.push(eq(applications.jobId, opts.jobId));
+  if (appPreds.length > 0) {
+    filters.push(
+      inArray(
+        candidates.id,
+        db
+          .select({ id: applications.candidateId })
+          .from(applications)
+          .where(scopeWhere(ctx, applications, appPreds)),
+      ),
+    );
+  }
+
+  const where = scopeWhere(ctx, candidates, filters);
+
   if (canSeePII(ctx.role)) {
     return db
       .select({ ...candidatePublicCols, ...candidatePiiCols })
@@ -79,12 +105,7 @@ export async function listCandidates(
       .where(where)
       .limit(limit);
   }
-
-  return db
-      .select(candidatePublicCols)
-      .from(candidates)
-      .where(where)
-      .limit(limit);
+  return db.select(candidatePublicCols).from(candidates).where(where).limit(limit);
 }
 
 /**

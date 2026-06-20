@@ -85,3 +85,9 @@ export type NewCandidate = typeof candidates.$inferInsert;
 
 export type Application = typeof applications.$inferSelect;
 export type NewApplication = typeof applications.$inferInsert;
+
+export const APPLICATION_STAGES = ["applied", "screen", "interview", "offer", "hired", "rejected"] as const;
+export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
+
+export const CANDIDATE_SOURCES = ["referral", "linkedin", "job_board", "agency", "careers_site"] as const;
+export type CandidateSource = (typeof CANDIDATE_SOURCES)[number];
