@@ -72,6 +72,17 @@ that's a good answer, not a gap.
   tool hands it, so when an analyst's rows come back without name, email or phone, there is
   no column there to show. The PII decision stays upstream in the query, the UI just draws
   what it is given.
+- **Frontend layer** — The first cut put everything in `page.tsx`: the page shell, the chat,
+  the tool-call lifecycle and all three renderers, plus the chart layout constants, about 520
+  lines in one file. I split that into a small frontend layer. `page.tsx` now keeps only the
+  hooks and composes the pieces (about 70 lines), and the presentational parts live in
+  `src/components` (chat, charts, tenant, pipeline) with shared constants in `src/lib`. I
+  chose a flat `components` plus `lib` shape over a heavier `features/` slice, because there
+  is one feature here and a slice would be more nesting than the code earns, and the repo
+  already groups by flat top-level folders (`agent`, `db`, `server`), so this matches what
+  was already there. I also pulled the magic values into named constants: the SVG geometry,
+  the chart colors, the font sizes and the table row cap. It was a pure structural pass with
+  no change to what renders, which made it easy to verify.
 
 ## Model & agent
 
