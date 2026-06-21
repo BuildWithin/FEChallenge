@@ -5,8 +5,15 @@ completeness. Delete these prompts as you fill them in._
 
 ## Overview
 
-What you built and the state it's in. If something is half-done on purpose, say so —
-that's a good answer, not a gap.
+A multi-tenant ATS analytics copilot. You ask about one workspace's recruiting data in plain
+language; the agent picks from a small set of read-only tools and the UI renders each result
+as a table, bar, or line while the answer streams. Two rules are enforced by construction in
+the query layer: every read is scoped to the caller's workspace, and candidate PII is gated by
+role so an analyst never receives it. It runs offline on the repo's deterministic mock model
+for evals, and against `gemini-2.5-flash` through OpenRouter for real use. State: complete and
+green (typecheck, build, tests, evals). The five tools, generative UI, error handling, and a
+token-based design system are done. Two things are deliberately written up as plans rather than
+code, and I say why below: the response-caching stretch, and a real-model answer-quality eval.
 
 ## Architecture & key decisions
 
@@ -21,11 +28,8 @@ that's a good answer, not a gap.
   read and each return type stays simple.
 - **Query layer** — All the database access for the copilot lives in one module,
   `analytics.ts`, and nothing else touches the database. The repo set this shape and I
-  kept it: every function takes `ctx` first and returns plain rows. I add one function per
-  type of question, the same way I add one tool per question, so each return type stays
-  small and easy to read. The queries are display-agnostic, they only return rows, and the
-  tool that wraps them decides how to render. The agent never writes SQL, it just calls a
-  tool with high-level params. Keeping every read in this one layer, behind shared helpers,
+  kept it: every function takes `ctx` first and returns plain rows, display-agnostic, and the
+  tool that wraps them decides how to render. Keeping every read in this one layer, behind shared helpers,
   is also what lets me enforce the two hard rules in a single place instead of scattering
   them across tools: tenant scoping and PII gating, each described in its own note below.
 - **Tenant scoping** — Every read is tied to one workspace, and I wanted that to be
@@ -63,9 +67,8 @@ that's a good answer, not a gap.
   a table, a bar chart or a line chart. I built the two charts as plain SVG instead
   of pulling in a charting library, because the shapes are simple and I would rather keep
   the dependency surface small and the rendering easy to read. The result is rendered while
-  the agent streams, following the tool-part lifecycle: while the tool runs the user sees a
-  small "calling" placeholder, and when the data arrives it turns into the chart or table.
-  I handle the states that would otherwise look broken: an empty result shows a calm "no
+  the agent streams. I handle the states that would otherwise look broken: an empty result
+  shows a calm "no
   data" line rather than an empty chart, a tool error shows a muted note rather than a red
   block, and a call that the model retried and recovered leaves no card behind. One thing I
   was careful about is that the UI never reintroduces PII: it renders only the columns the
@@ -83,6 +86,13 @@ that's a good answer, not a gap.
   was already there. I also pulled the magic values into named constants: the SVG geometry,
   the chart colors, the font sizes and the table row cap. It was a pure structural pass with
   no change to what renders, which made it easy to verify.
+- **Design tokens and the redesign** — Before touching the look I built a color system: two raw
+  scales as CSS variables, semantic tokens layered on top, and Tailwind mapping utility names to
+  them, so a component names a role like `surface` or `accent` instead of a raw shade, and the
+  SVG charts read the same tokens. The reason is leverage: the next visual change is a few
+  variables, not a sweep across files. For the layout I deliberately followed the conventions of
+  the analytics and chat tools people already use, since a familiar shape lets a user recognize
+  the interface and know how to use it without learning it.
 
 ## Model & agent
 
@@ -95,7 +105,7 @@ I started with the free `gpt-oss-120b` to keep everything at zero cost while bui
 But it behaved poorly. Across a few runs it made wrong tool calls, and a couple of times
 it answered with a hand-written ASCII table instead of returning the data for the UI to
 render. Since changing the model is just one variable, I moved to
-`google/gemini-2.5-flash-lite`, which called the tools correctly and respected the
+`google/gemini-2.5-flash`, which called the tools correctly and respected the
 display contract.
 
 The loop itself comes from the repo: `streamText` with a six-step cap. I looked at
@@ -154,7 +164,31 @@ per workspace.
 
 ## Trade-offs & cuts
 
-What you deliberately left out and why. What you'd do with another day.
+- **Empty time buckets aren't filled** in `applicationsOverTime`. The line connects the buckets
+  that have data; no `generate_series`. A simplicity cut, fine for this dataset.
+- **PII safety is typed at the query projection, not the call site** (see Permissions). The role
+  is a runtime header value, so a full compile-time guarantee would need a typed query builder or
+  heavy generics. I chose the chokepoint plus the eval instead.
+- **Hand-rolled SVG, no chart library.** Right for three simple shapes and a small dependency
+  surface; a real product would want a library for axes, tooltips, and responsiveness.
+- **Evals run on the mock model.** They prove the safety rules deterministically, but they don't
+  test whether the real model routes and answers well. With another day I'd add a separate,
+  key-gated real-model eval with an LLM-as-judge for answer quality and the two-tool chain, kept
+  apart from the safety gates so its flakiness can't turn them red.
+- **Caching is a plan, not built** (see the stretch below).
+
+## Stretch — response caching
+
+I picked response caching. The copilot is read-only and each query is deterministic given
+`(workspaceId, role, tool, params)`, so results cache cleanly with no invalidation problem; a
+short TTL is enough. The point that makes it interesting here: the cache key must include
+`workspaceId` and `role`. Workspace is obvious. Role is the subtle one, because `listCandidates`
+projects different columns by role, so a key missing the role could hand an analyst a recruiter's
+cached rows with PII in them. The cache key is the same isolation boundary the query layer already
+enforces; caching just extends it to a new surface. I'd build it as a thin wrapper at the
+analytics layer keyed on those fields with a TTL, in-memory for one instance or Redis if it scales
+out. I wrote it as a plan rather than code to avoid adding a brittle layer this late, which the
+README explicitly allows.
 
 ## Working with the agent
 
@@ -182,4 +216,4 @@ Using AI tools is encouraged. Briefly:
 
 ## Hours
 
-Roughly how long you spent.
+Roughly 5 focused hours, spread over three days.
