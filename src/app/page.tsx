@@ -56,8 +56,8 @@ export default function Page() {
   }
 
   return (
-    <main className="mx-auto grid h-screen max-w-6xl grid-cols-[1fr_320px] gap-4 p-4">
-      <section className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white">
+    <main className="grid h-screen grid-cols-[320px_1fr] gap-4 p-4">
+      <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto mt-6">
         <ChatHeader
           workspaces={workspaces.data ?? []}
           activeWorkspace={activeWorkspace}
@@ -65,12 +65,12 @@ export default function Page() {
           role={role}
           onRoleChange={setRole}
         />
+        <PipelinePanel rows={pipeline.data ?? []} />
+      </aside>
+      <section className="flex min-h-0 flex-col gap-3 max-w-[60%] ml-[10%]">
         <MessageList messages={messages} busy={busy} error={error} />
         <Composer value={input} onChange={setInput} onSubmit={submit} disabled={busy} />
       </section>
-      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-        <PipelinePanel rows={pipeline.data ?? []} />
-      </aside>
     </main>
   );
 }

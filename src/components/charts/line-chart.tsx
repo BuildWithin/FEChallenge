@@ -1,7 +1,7 @@
 import type { Display, Row } from "@/agent/artifact";
 import {
   VIEW_W, VIEW_H, MARGIN_TOP, MARGIN_LEFT, PLOT_W, PLOT_H,
-  TITLE_DY, LINE_WIDTH, DOT_R, Y_LABEL_DX, Y_LABEL_DY, X_LABEL_DY,
+  TITLE_Y, LINE_WIDTH, DOT_R, Y_LABEL_DX, Y_LABEL_DY, X_LABEL_DY,
   LINE_LABEL_ROTATE_AT, LABEL_ROTATE_DEG, BASELINE_WIDTH, CHART_COLORS, CHART_FONT,
 } from "@/lib/charts";
 
@@ -31,7 +31,7 @@ export function LineChart({
         {/* Title */}
         <text
           x={VIEW_W / 2}
-          y={MARGIN_TOP - TITLE_DY}
+          y={TITLE_Y}
           textAnchor="middle"
           style={{ fontSize: CHART_FONT.title, fontWeight: CHART_FONT.titleWeight, fill: CHART_COLORS.titleText }}
         >

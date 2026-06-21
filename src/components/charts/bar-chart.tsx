@@ -1,8 +1,8 @@
 import type { Display, Row } from "@/agent/artifact";
 import {
   VIEW_W, VIEW_H, MARGIN_TOP, MARGIN_LEFT,
-  PLOT_W, PLOT_H, BAR_WIDTH_RATIO, BAR_MIN_WIDTH, BAR_MIN_HEIGHT, BAR_RADIUS,
-  TITLE_DY, VALUE_LABEL_DY, X_LABEL_DY, BAR_LABEL_ROTATE_AT, LABEL_ROTATE_DEG, BASELINE_WIDTH,
+  PLOT_W, PLOT_H, BAR_WIDTH_RATIO, BAR_MIN_WIDTH, BAR_MIN_HEIGHT, BAR_MAX_FILL, BAR_RADIUS,
+  TITLE_Y, VALUE_LABEL_DY, X_LABEL_DY, BAR_LABEL_ROTATE_AT, LABEL_ROTATE_DEG, BASELINE_WIDTH,
   CHART_COLORS, CHART_FONT,
 } from "@/lib/charts";
 
@@ -27,7 +27,7 @@ export function BarChart({
         {/* Title */}
         <text
           x={VIEW_W / 2}
-          y={MARGIN_TOP - TITLE_DY}
+          y={TITLE_Y}
           textAnchor="middle"
           style={{ fontSize: CHART_FONT.title, fontWeight: CHART_FONT.titleWeight, fill: CHART_COLORS.titleText }}
         >
@@ -47,7 +47,7 @@ export function BarChart({
         {/* Bars + labels */}
         {rows.map((row, i) => {
           const val = values[i];
-          const bH = Math.max((val / max) * PLOT_H, val > 0 ? BAR_MIN_HEIGHT : 0);
+          const bH = Math.max((val / max) * PLOT_H * BAR_MAX_FILL, val > 0 ? BAR_MIN_HEIGHT : 0);
           const bX = MARGIN_LEFT + i * slotW + bOffset;
           const bY = MARGIN_TOP + PLOT_H - bH;
           const labelX = MARGIN_LEFT + (i + 0.5) * slotW;

@@ -16,11 +16,11 @@ export function TenantSwitcher({
   onRoleChange: (role: (typeof ROLES)[number]) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <label className="flex items-center gap-1.5">
-        <span className="text-gray-500">Workspace</span>
+    <div className="flex flex-col gap-3">
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-foreground-muted">Workspace</span>
         <select
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
+          className="w-full rounded-lg border border-line-strong bg-surface px-2 p-4 py-1.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-ring"
           value={activeWorkspace}
           onChange={(e) => onWorkspaceChange(e.target.value)}
         >
@@ -31,10 +31,10 @@ export function TenantSwitcher({
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-1.5">
-        <span className="text-gray-500">Role</span>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-foreground-muted">Role</span>
         <select
-          className="rounded border border-gray-300 px-2 py-1 text-sm"
+          className="w-full rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-ring"
           value={role}
           onChange={(e) => onRoleChange(e.target.value as (typeof ROLES)[number])}
         >

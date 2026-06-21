@@ -15,10 +15,12 @@ export function ChatHeader({
   onRoleChange: (role: (typeof ROLES)[number]) => void;
 }) {
   return (
-    <header className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-      <div>
-        <h1 className="text-lg font-semibold">ATS Analytics Copilot</h1>
-        <p className="text-xs text-gray-500">
+    <header className="flex flex-col gap-4 rounded-xl border border-line shadow-sm bg-surface p-4">
+      <div className="flex flex-col gap-0.5">
+        <h1 className="text-[1.375rem] font-bold leading-tight tracking-[-0.02em]">
+          ATS Analytics Copilot
+        </h1>
+        <p className="text-xs leading-snug text-foreground-muted">
           Chat with this workspace&rsquo;s recruiting data.
         </p>
       </div>

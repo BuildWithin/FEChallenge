@@ -4,6 +4,80 @@
 
 :root {
   color-scheme: light;
+
+  /* Raw palette — periwinkle (accent). */
+  --periwinkle-50: #eff2ff;
+  --periwinkle-100: #e1e7ff;
+  --periwinkle-200: #c9d3ff;
+  --periwinkle-300: #a7b6ff;
+  --periwinkle-400: #8a9fff;
+  --periwinkle-500: #7c9cff;
+  --periwinkle-600: #5b78f5;
+  --periwinkle-700: #4759da;
+  --periwinkle-800: #3a48ae;
+  --periwinkle-900: #343f89;
+  --periwinkle-950: #1f2552;
+
+  /* Raw palette — cool neutral. */
+  --neutral-50: #f7f7f8;
+  --neutral-100: #e9e9eb;
+  --neutral-200: #d1d1d5;
+  --neutral-300: #b2b2b8;
+  --neutral-400: #8b8b92;
+  --neutral-500: #6c6c73;
+  --neutral-600: #4e4e55;
+  --neutral-700: #38383d;
+  --neutral-800: #27272b;
+  --neutral-850: #1d1d20;
+  --neutral-900: #161618;
+  --neutral-950: #0e0e10;
+
+  /* Semantic tokens. */
+  /* Background carries a touch more periwinkle so white surfaces lift off it —
+     the old #F4F6FC sat too close to surface white and read as one dead plane. */
+  --color-background: #eceffb;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f3f3f5;
+  --color-surface-muted: #fcfcfc;
+
+  --color-line: rgb(71 89 218 / 0.14);
+  --color-line-strong: rgb(71 89 218 / 0.22);
+  --color-line-subtle: rgb(71 89 218 / 0.08);
+  --color-line-faint: rgb(71 89 218 / 0.04);
+
+  --color-foreground: #18181b;
+  --color-foreground-body: #52525a;
+  --color-foreground-muted: #52525a;
+  --color-foreground-faint: #8b8b92;
+  --color-on-accent: #ffffff;
+
+  /* The one disciplined accent: periwinkle owns primary actions and active
+     state. -600 for fills (white-on it clears 3:1 for icon/UI), -700 for
+     accent *text* on light surfaces (clears 4.5:1). */
+  --color-accent: var(--periwinkle-600);
+  --color-accent-hover: var(--periwinkle-700);
+  --color-accent-text: var(--periwinkle-700);
+  --color-accent-subtle: var(--periwinkle-50);
+
+  /* User message bubble stays near-black — a dark bubble against the periwinkle
+     primary is the intended Linear/Stripe pairing. */
+  --color-user-bubble: #18181b;
+  --color-user-bubble-fg: #f7f7f8;
+
+  /* Focus ring. */
+  --color-ring: rgb(71 89 218 / 0.5);
+
+  /* Status — warning. */
+  --color-warning: #febc2e;
+  --color-warning-subtle: #fffbeb;
+
+  /* Chart tokens (consumed by the SVG charts). */
+  --color-chart-accent: var(--periwinkle-600);
+  --color-chart-grid: var(--neutral-100);
+  --color-chart-grid-faint: var(--neutral-50);
+  --color-chart-title: var(--neutral-700);
+  --color-chart-value: var(--neutral-500);
+  --color-chart-muted: var(--neutral-400);
 }
 
 html,
@@ -12,17 +86,55 @@ body {
 }
 
 body {
-  @apply bg-gray-50 text-gray-900 antialiased;
+  @apply bg-background text-foreground antialiased font-sans;
+  font-feature-settings: "cv01", "cv03", "ss01";
+  text-rendering: optimizeLegibility;
+}
+
+/* Scrollbars: blend the native track into the page instead of a white gutter. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--neutral-300);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--neutral-400);
 }
 
 @keyframes bar-grow {
-  from { transform: scaleY(0); }
-  to   { transform: scaleY(1); }
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
 }
 
 @keyframes line-draw {
-  from { stroke-dashoffset: 1; }
-  to   { stroke-dashoffset: 0; }
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 .bar-grow {

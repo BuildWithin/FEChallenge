@@ -8,7 +8,7 @@ export function ToolResultView({ output }: { output: { rows: Row[]; display: Dis
 
   if (rows.length === 0) {
     return (
-      <p className="px-4 py-6 text-sm text-gray-400">No data for this view.</p>
+      <p className="px-4 py-6 text-sm text-foreground-faint">No data for this view.</p>
     );
   }
 
