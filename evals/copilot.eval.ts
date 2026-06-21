@@ -1,6 +1,6 @@
 import { createScorer, evalite } from "evalite";
 import { wrapAISDKModel } from "evalite/ai-sdk";
-import type { UIMessage } from "ai";
+import { generateText, type UIMessage } from "ai";
 import { eq } from "drizzle-orm";
 
 import { db, ensureSchema } from "@/db/client";
@@ -167,7 +167,7 @@ const routedTo = createScorer<string, Output, string[]>({
 // is configured. The two-tool chain is intentionally left out (it's the flaky
 // path). Some questions have more than one valid route, so `expected` is the
 // set of acceptable tools, not a single one.
-// Heavier follow-up: an LLM-as-judge answer-quality scorer (evalite/scorers).
+// Answer quality (does the prose answer match the data) is judged separately below.
 // ---------------------------------------------------------------------------
 if (env.AI_PROVIDER !== "mock") {
   evalite<string, Output, string[]>("Tool routing (real model, Brightwave / admin)", {
@@ -185,5 +185,57 @@ if (env.AI_PROVIDER !== "mock") {
     },
     task: (input) => runCopilot(input, "brightwave", "admin"),
     scorers: [routedTo],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Answer QUALITY (real model only). Routing checks the agent picks a sensible
+// tool; this checks the prose answer is actually accurate and grounded in the
+// rows that tool returned. A model judge grades each answer PASS/FAIL. Key-gated
+// and kept apart from the safety evals so its noise can't redden them.
+// Limitation: the judge is the same model family that answered, so it's a
+// grounding sanity check, not an independent oracle.
+// ---------------------------------------------------------------------------
+const answerIsGrounded = createScorer<string, Output, undefined>({
+  name: "Answer grounded",
+  description: "A model judge confirms the answer is accurate and supported by the rows.",
+  scorer: async ({ input, output }) => {
+    if (output.rows.length === 0) return 0; // nothing to ground the answer in
+    const { text } = await generateText({
+      model: wrapAISDKModel(getModel()),
+      temperature: 0, // deterministic grading; the answer is what varies, not the judge
+      prompt: [
+        "You are grading an analytics assistant's answer to a question.",
+        "Judge ONLY whether the answer is accurate and supported by the DATA rows.",
+        "The assistant keeps answers brief on purpose, because the user also sees a chart",
+        "or table. So a short correct summary, or correctly pointing to what the chart or",
+        "table shows, is fine and need not restate every number. Ignore tone and length.",
+        "",
+        `QUESTION: ${input}`,
+        `DATA (the JSON rows the answer is based on): ${JSON.stringify(output.rows)}`,
+        `ANSWER: ${output.text}`,
+        "",
+        "Reply with exactly one word, PASS or FAIL: PASS if the answer is accurate,",
+        "on-topic, and grounded in the data; FAIL if it is empty, wrong, off-topic, or",
+        "states anything the data does not support.",
+      ].join("\n"),
+    });
+    const verdict = text.toUpperCase();
+    return verdict.includes("FAIL") ? 0 : verdict.includes("PASS") ? 1 : 0;
+  },
+});
+
+if (env.AI_PROVIDER !== "mock") {
+  evalite<string, Output>("Answer quality (real model, judged, Brightwave / admin)", {
+    data: async () => {
+      await ensureSeeded();
+      return [
+        { input: "How does my pipeline look by stage?" },
+        { input: "Where are candidates coming from?" },
+        { input: "How have applications trended over time?" },
+      ];
+    },
+    task: (input) => runCopilot(input, "brightwave", "admin"),
+    scorers: [answerIsGrounded],
   });
 }
