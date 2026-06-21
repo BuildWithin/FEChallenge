@@ -12,8 +12,9 @@ the query layer: every read is scoped to the caller's workspace, and candidate P
 role so an analyst never receives it. It runs offline on the repo's deterministic mock model
 for evals, and against `gemini-2.5-flash` through OpenRouter for real use. State: complete and
 green (typecheck, build, tests, evals). The five tools, generative UI, error handling, and a
-token-based design system are done. Two things are deliberately written up as plans rather than
-code, and I say why below: the response-caching stretch, and a real-model answer-quality eval.
+token-based design system are done, plus a key-gated real-model eval that checks tool routing.
+One thing is deliberately a written plan rather than code, and I say why below: the
+response-caching stretch.
 
 ## Architecture & key decisions
 
@@ -162,6 +163,13 @@ from the data is that the two workspaces share the same candidate names, so the 
 eval checks ids rather than names, since the id is the only field that is actually unique
 per workspace.
 
+There is a third eval that needs the real model, so it is gated on `AI_PROVIDER` and stays
+out of the offline run: it asks each clear single-tool question and fails if the agent doesn't
+route to an acceptable tool. It's deliberately separate from the two safety evals so its
+flakiness can never turn a safety gate red. Some questions have more than one right route (for
+example "pipeline by stage" is fine as either the aggregate bar or the per-job pivot), so it
+scores against a set of acceptable tools, not a single one.
+
 ## Trade-offs & cuts
 
 - **Empty time buckets aren't filled** in `applicationsOverTime`. The line connects the buckets
@@ -171,10 +179,10 @@ per workspace.
   heavy generics. I chose the chokepoint plus the eval instead.
 - **Hand-rolled SVG, no chart library.** Right for three simple shapes and a small dependency
   surface; a real product would want a library for axes, tooltips, and responsiveness.
-- **Evals run on the mock model.** They prove the safety rules deterministically, but they don't
-  test whether the real model routes and answers well. With another day I'd add a separate,
-  key-gated real-model eval with an LLM-as-judge for answer quality and the two-tool chain, kept
-  apart from the safety gates so its flakiness can't turn them red.
+- **Answer quality is only routing, not judged.** The real-model eval checks the agent picks a
+  reasonable tool, but it doesn't grade the prose answer. With another day I'd add an
+  LLM-as-judge scorer (`evalite/scorers`) and cover the two-tool chain, still key-gated and
+  apart from the safety evals.
 - **Caching is a plan, not built** (see the stretch below).
 
 ## Stretch — response caching
