@@ -12,7 +12,8 @@ the query layer: every read is scoped to the caller's workspace, and candidate P
 role so an analyst never receives it. It runs offline on the repo's deterministic mock model
 for evals, and against `gemini-2.5-flash` through OpenRouter for real use. State: complete and
 green (typecheck, build, tests, evals). The five tools, generative UI, error handling, and a
-token-based design system are done, plus a key-gated real-model eval that checks tool routing.
+token-based design system are done, plus key-gated real-model evals for tool routing and
+judged answer quality.
 One thing is deliberately a written plan rather than code, and I say why below: the
 response-caching stretch.
 
@@ -163,12 +164,16 @@ from the data is that the two workspaces share the same candidate names, so the 
 eval checks ids rather than names, since the id is the only field that is actually unique
 per workspace.
 
-There is a third eval that needs the real model, so it is gated on `AI_PROVIDER` and stays
-out of the offline run: it asks each clear single-tool question and fails if the agent doesn't
-route to an acceptable tool. It's deliberately separate from the two safety evals so its
-flakiness can never turn a safety gate red. Some questions have more than one right route (for
+Two more evals need the real model, so they are gated on `AI_PROVIDER` and stay out of the
+offline run, deliberately separate from the two safety evals so their noise can never turn a
+safety gate red. The first checks tool routing: it asks each clear question and fails if the
+agent doesn't call an acceptable tool. Some questions have more than one right route (for
 example "pipeline by stage" is fine as either the aggregate bar or the per-job pivot), so it
-scores against a set of acceptable tools, not a single one.
+scores against a set of acceptable tools, not a single one. The second judges answer quality:
+a model grades whether the prose answer is accurate and grounded in the rows the tool returned.
+The judge runs at temperature 0 so its verdict is stable and only the answer varies; it is
+honestly a sanity check, not an oracle, since it is the same model family that answered. It
+catches the real cases (an empty or content-free answer fails), which is the point.
 
 ## Trade-offs & cuts
 
@@ -179,10 +184,10 @@ scores against a set of acceptable tools, not a single one.
   heavy generics. I chose the chokepoint plus the eval instead.
 - **Hand-rolled SVG, no chart library.** Right for three simple shapes and a small dependency
   surface; a real product would want a library for axes, tooltips, and responsiveness.
-- **Answer quality is only routing, not judged.** The real-model eval checks the agent picks a
-  reasonable tool, but it doesn't grade the prose answer. With another day I'd add an
-  LLM-as-judge scorer (`evalite/scorers`) and cover the two-tool chain, still key-gated and
-  apart from the safety evals.
+- **The answer-quality judge is the same model family, and single-turn.** It's a grounding
+  sanity check, not an independent oracle, and it doesn't cover the two-tool chain. With another
+  day I'd judge with a different model and add multi-step cases, still key-gated and apart from
+  the safety evals.
 - **Caching is a plan, not built** (see the stretch below).
 
 ## Stretch — response caching
