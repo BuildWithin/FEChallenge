@@ -8,6 +8,7 @@ import { candidates, workspaces } from "@/db/schema";
 import { seed } from "@/db/seed";
 import { getModel } from "@/agent/provider";
 import { streamCopilot } from "@/agent/run";
+import { env } from "@/env";
 
 /**
  * Agent evals with Evalite (https://v1.evalite.dev) — the eval framework the AI
@@ -153,10 +154,36 @@ evalite<{ workspaceId: string }, Output, string[]>(
   },
 );
 
+const routedTo = createScorer<string, Output, string[]>({
+  name: "Routed to a valid tool",
+  description: "The agent called one of the acceptable tools for this question.",
+  scorer: ({ output, expected }) =>
+    (expected ?? []).some((t) => output.toolNames.includes(t)) ? 1 : 0,
+});
+
 // ---------------------------------------------------------------------------
-// TODO(candidate): add the evals that actually de-risk this agent. Suggested:
-//
-//  3. ANSWER QUALITY — with a real model wired, score the agent's prose with an
-//     LLM-as-judge scorer from `evalite/scorers` (e.g. `answerCorrectness`)
-//     against an `expected` answer you add to `data`.
+// Tool ROUTING (real model only). The mock routes by description overlap, so
+// this would be meaningless against it; register it only when a real provider
+// is configured. The two-tool chain is intentionally left out (it's the flaky
+// path). Some questions have more than one valid route, so `expected` is the
+// set of acceptable tools, not a single one.
+// Heavier follow-up: an LLM-as-judge answer-quality scorer (evalite/scorers).
 // ---------------------------------------------------------------------------
+if (env.AI_PROVIDER !== "mock") {
+  evalite<string, Output, string[]>("Tool routing (real model, Brightwave / admin)", {
+    data: async () => {
+      await ensureSeeded();
+      return [
+        // "pipeline by stage" is answerable by either the aggregate bar
+        // (applicationCountByStage) or the per-job pivot (jobsOverview).
+        { input: "How does my pipeline look by stage?", expected: ["applicationCountByStage", "jobsOverview"] },
+        { input: "Where are candidates coming from?", expected: ["applicationsBySource"] },
+        { input: "List the candidates in this workspace", expected: ["listCandidates"] },
+        { input: "How have applications trended over time?", expected: ["applicationsOverTime"] },
+        { input: "Give me an overview of every job with its stage breakdown", expected: ["jobsOverview"] },
+      ];
+    },
+    task: (input) => runCopilot(input, "brightwave", "admin"),
+    scorers: [routedTo],
+  });
+}
