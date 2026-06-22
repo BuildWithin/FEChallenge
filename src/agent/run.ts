@@ -34,14 +34,17 @@ export async function streamCopilot({
 }) {
   await ensureSchema();
 
-  // This is a minimal loop: one model, the tools, capped at 6 steps. Owning the
-  // loop is part of the exercise — consider tool-error handling, your stop
-  // strategy, and whether the agent should emit a typed structured answer.
+  // A step is one model generation, so the loop ends on its own when
+  // the model answers without another tool call, the cap is just a safety net.
+  // The longest path (two-tool chain, a retry each) is ~5 steps.
   return streamText({
     model,
     system: SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     tools: buildTools({ workspaceId, role }),
     stopWhen: stepCountIs(6),
+    onError({ error }) {
+      console.error("[streamCopilot error]", error);
+    },
   });
 }

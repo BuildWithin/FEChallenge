@@ -1,55 +1,24 @@
-# Working notes (for your AI agent / you)
+# ATS Analytics Copilot
 
-This is a small, runnable take-home: a multi-tenant **ATS analytics copilot**. An
-AI agent chats with a hiring team about **one workspace's** recruiting data (jobs,
-candidates, applications), calls tools to answer questions, and renders the results
-as charts/tables.
+A multi-tenant ATS analytics copilot. An AI agent answers questions about ONE
+workspace's recruiting data (jobs, candidates, applications) by calling tools and
+rendering charts/tables. The repo boots on a deterministic mock model; we build the
+copilot against a real model.
 
-> Make this file yours — you're expected to commit your agent config. Adjust these
-> notes as you work.
+## Non-negotiable rules (these drive every decision)
 
-## The one rule that matters most
-
-**All data access is scoped to the caller's workspace AND role.** Every read must be
-constrained to `ctx.workspaceId`, and candidate PII (name / email / phone) must be
-gated by role — an `analyst` never sees it. A cross-workspace or PII leak is the
-worst bug you can ship here. The reference query in `src/db/analytics.ts`
-(`scopeWhere` + `applicationCountByStage`) shows the scoped pattern; extend it so
-scope can't be forgotten as the layer grows. The tRPC `analytics.*` procedures pass
-`ctx` correctly — mirror that.
-
-## Build a real agent
-
-The repo **boots** on a mock model so it runs on clone and tests stay deterministic,
-but the mock is a stand-in — **build your copilot against a real model.** Set
-`AI_PROVIDER` to a real provider, or route through a gateway (see `.env.example` and
-`src/agent/provider.ts`). Your demo should show the real agent working.
-
-## What's given vs. what you build
-
-- **Given:** the schema + seed (two workspaces), the streaming agent loop, the
-  provider layer, the mock (boot/tests only), a minimal chat UI, the tRPC layer, and
-  **one worked tool end-to-end** as a reference.
-- **You build:** the tool catalog, the query layer behind it, permission
-  enforcement, the generative chart UI, and the two benchmark stubs. See `README.md`
-  for the full brief.
-
-## Repo layout
-
-```
-src/
-  db/        Drizzle schema + PGlite client + seed + analytics.ts (query layer) + permissions.ts
-  server/    tRPC router + context (carries workspaceId + role from headers)
-  agent/     tools.ts · run.ts (streamText loop) · provider.ts · mock-model.ts · artifact.ts
-  app/       chat UI, providers, /api/chat, /api/trpc
-evals/       agent evals — Evalite *.eval.ts (pnpm eval)
-```
-
-## Stack
-
-Next.js 16 (App Router, Turbopack) · React 19 · Vercel AI SDK v6 · tRPC v11 +
-TanStack Query + superjson · Drizzle ORM over PGlite (in-process Postgres,
-file-backed at `./.pglite`) · Tailwind v3 · TypeScript strict.
+- **Tenant isolation by construction.** Every read is scoped to `ctx.workspaceId`.
+  Workspace A must never see workspace B's rows. This is true BY CONSTRUCTION, not
+  by remembering to filter: reuse `scopeWhere` and keep `ctx` as the first argument
+  of every query so a query cannot be written without a scope.
+- **PII gating by construction.** Candidate PII is `name`, `email`, `phone`. An
+  `analyst` must NEVER receive it; `recruiter` and `admin` may. Enforce at the
+  projection level so an analyst's return TYPE does not include PII columns — a PII
+  leak for the wrong role should be unrepresentable, not merely rejected at runtime.
+- **The agent never writes SQL.** It picks tools and passes high-level params.
+- **Every tool returns `{ rows, display }`** where `display.kind` is `bar`, `line`,
+  or `table`. The tool decides the display, not the model.
+- Review every diff against these rules. Never commit code you do not understand.
 
 ## Commands
 
@@ -64,10 +33,19 @@ pnpm test         # vitest
 pnpm build
 ```
 
-## Where to start
+## Slices
 
-- `src/agent/tools.ts` — the reference tool; design the catalog.
-- `src/db/analytics.ts` — the reference query + `scopeWhere`; build the layer.
-- `src/db/permissions.ts` — enforce PII by role (it's a stub).
-- `src/app/page.tsx` — turn tool results into real generative UI (currently a stub).
-- `evals/copilot.eval.ts` — Evalite; flesh out the tenant-isolation & permission evals.
+Read the relevant slice before working in that area. Each doc is a spec + rules.
+
+- [docs/slices/architecture.md](docs/slices/architecture.md) — the layer chain
+  (context → analytics → tools → artifact → UI → eval), each layer's
+  responsibility, the `scopeWhere` pattern, and the PII-by-construction approach.
+  Includes the repo layout and where to start.
+- [docs/slices/tools.md](docs/slices/tools.md) — the tool catalog, input schemas,
+  enum values, the `{ rows, display }` contract, and join/semantics notes.
+- [docs/slices/ui.md](docs/slices/ui.md) — generative UI plan: hand-rolled SVG
+  bar/line + a table renderer, keyed off `display.kind`, rendered while streaming.
+- [docs/slices/evals.md](docs/slices/evals.md) — required evals (tenant isolation,
+  PII, answer quality), each of which must FAIL if its rule is broken.
+- [docs/slices/model.md](docs/slices/model.md) — OpenRouter wiring, loop control,
+  and tool-error handling.

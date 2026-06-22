@@ -5,14 +5,16 @@ import { DefaultChatTransport } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-import { ROLES } from "@/db/permissions";
-import type { Display, Row } from "@/agent/artifact";
 import {
   getActiveRole,
   getActiveWorkspace,
   useTenant,
   useTRPC,
 } from "./providers";
+import { ChatHeader } from "@/components/chat/chat-header";
+import { MessageList } from "@/components/chat/message-list";
+import { Composer } from "@/components/chat/composer";
+import { PipelinePanel } from "@/components/pipeline/pipeline-panel";
 
 export default function Page() {
   const { activeWorkspace, setActiveWorkspace, role, setRole } = useTenant();
@@ -37,7 +39,7 @@ export default function Page() {
     [activeWorkspace, role],
   );
 
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, error } = useChat({
     id: `${activeWorkspace}:${role}`,
     transport,
   });
@@ -54,195 +56,21 @@ export default function Page() {
   }
 
   return (
-    <main className="mx-auto grid h-screen max-w-6xl grid-cols-[1fr_320px] gap-4 p-4">
-      {/* Conversation column */}
-      <section className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white">
-        <header className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <div>
-            <h1 className="text-lg font-semibold">ATS Analytics Copilot</h1>
-            <p className="text-xs text-gray-500">
-              Chat with this workspace&rsquo;s recruiting data.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <label className="flex items-center gap-1.5">
-              <span className="text-gray-500">Workspace</span>
-              <select
-                className="rounded border border-gray-300 px-2 py-1 text-sm"
-                value={activeWorkspace}
-                onChange={(e) => setActiveWorkspace(e.target.value)}
-              >
-                {workspaces.data?.map((w) => (
-                  <option key={w.id} value={w.slug}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <span className="text-gray-500">Role</span>
-              <select
-                className="rounded border border-gray-300 px-2 py-1 text-sm"
-                value={role}
-                onChange={(e) => setRole(e.target.value as (typeof ROLES)[number])}
-              >
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </header>
-
-        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          {messages.length === 0 && (
-            <p className="text-sm text-gray-400">
-              Ask about this workspace &mdash; e.g. &ldquo;How does my pipeline
-              look by stage?&rdquo; or &ldquo;Where are candidates coming
-              from?&rdquo;
-            </p>
-          )}
-
-          {messages.map((message) => (
-            <div key={message.id} className="space-y-2">
-              <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                {message.role}
-              </div>
-              {message.parts.map((part, i) => {
-                if (part.type === "text") {
-                  return (
-                    <p
-                      key={i}
-                      className="whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
-                    >
-                      {part.text}
-                    </p>
-                  );
-                }
-                if (part.type.startsWith("tool-")) {
-                  return <ToolCall key={i} part={part} />;
-                }
-                return null;
-              })}
-            </div>
-          ))}
-
-          {busy && <p className="text-xs text-gray-400">Copilot is working&hellip;</p>}
-        </div>
-
-        <form
-          onSubmit={submit}
-          className="flex items-center gap-2 border-t border-gray-200 px-4 py-3"
-        >
-          <input
-            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
-            placeholder="Ask the analytics copilot…"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Send
-          </button>
-        </form>
-      </section>
-
-      {/* Side panel: a reference scoped read via tRPC (pipeline by stage). */}
-      <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="mb-2 text-sm font-semibold">Pipeline (this workspace)</h2>
-          {pipeline.data && pipeline.data.length > 0 ? (
-            <ul className="space-y-1">
-              {pipeline.data.map((row) => (
-                <li key={row.stage} className="flex justify-between text-xs">
-                  <span className="font-medium">{row.stage}</span>
-                  <span className="text-gray-400">{Number(row.count)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-gray-400">No data.</p>
-          )}
-        </div>
+    <main className="grid h-screen grid-cols-[320px_1fr] gap-4 p-4">
+      <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto mt-6">
+        <ChatHeader
+          workspaces={workspaces.data ?? []}
+          activeWorkspace={activeWorkspace}
+          onWorkspaceChange={setActiveWorkspace}
+          role={role}
+          onRoleChange={setRole}
+        />
+        <PipelinePanel rows={pipeline.data ?? []} />
       </aside>
+      <section className="flex min-h-0 flex-col gap-3 max-w-[60%] ml-[10%]">
+        <MessageList messages={messages} busy={busy} error={error} />
+        <Composer value={input} onChange={setInput} onSubmit={submit} disabled={busy} />
+      </section>
     </main>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tool-call rendering.
-//
-// TODO(candidate): this is a deliberately bare stub. Each tool returns
-// `{ rows, display }` where `display.kind` is "table" | "bar" | "line". Turn
-// these into real, streaming generative UI — render bar/line charts, show the
-// "calling…" → "result" transition nicely, handle empty/error states. Make it
-// something you'd ship.
-// ---------------------------------------------------------------------------
-type ToolPart = {
-  type: string;
-  state?: string;
-  input?: unknown;
-  output?: { rows?: Row[]; display?: Display };
-  errorText?: string;
-};
-
-function ToolCall({ part }: { part: unknown }) {
-  const p = part as ToolPart;
-  const name = p.type.replace(/^tool-/, "");
-  const done = p.state === "output-available";
-  const errored = p.state === "output-error";
-
-  return (
-    <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
-      <div className="font-medium text-gray-600">
-        {name}{" "}
-        <span className="font-normal text-gray-400">
-          {errored ? "· error" : done ? "· result" : "· calling…"}
-        </span>
-      </div>
-      {errored && <p className="mt-1 text-red-500">{p.errorText}</p>}
-      {done && <RowsTable output={p.output} />}
-    </div>
-  );
-}
-
-function RowsTable({ output }: { output?: { rows?: Row[]; display?: Display } }) {
-  const rows = output?.rows ?? [];
-  if (rows.length === 0) return <p className="mt-1 text-gray-400">No rows.</p>;
-
-  const display = output?.display;
-  const columns =
-    display && display.kind === "table"
-      ? display.columns
-      : Object.keys(rows[0]);
-
-  return (
-    <table className="mt-2 w-full border-collapse text-left">
-      <thead>
-        <tr className="text-gray-400">
-          {columns.map((c) => (
-            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 8).map((row, i) => (
-          <tr key={i} className="text-gray-600">
-            {columns.map((c) => (
-              <td key={c} className="border-b border-gray-50 py-1 pr-2">
-                {String(row[c] ?? "")}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

@@ -1,4 +1,6 @@
 import { beforeAll, expect, test } from "vitest";
+import { z } from "zod";
+import { optional } from "@/agent/schema";
 
 import { db, ensureSchema } from "@/db/client";
 import { workspaces } from "@/db/schema";
@@ -13,6 +15,13 @@ function userMessage(text: string): UIMessage {
     parts: [{ type: "text", text }],
   };
 }
+
+test("optional(): null normalizes to undefined, schema stays narrow", () => {
+  const schema = z.object({ jobId: optional(z.string()) });
+  expect(schema.parse({ jobId: null }).jobId).toBeUndefined();
+  expect(schema.parse({}).jobId).toBeUndefined();
+  expect(schema.parse({ jobId: "abc" }).jobId).toBe("abc");
+});
 
 beforeAll(async () => {
   await ensureSchema();

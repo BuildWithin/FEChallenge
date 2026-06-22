@@ -85,3 +85,15 @@ export type NewCandidate = typeof candidates.$inferInsert;
 
 export type Application = typeof applications.$inferSelect;
 export type NewApplication = typeof applications.$inferInsert;
+
+export const APPLICATION_STAGES = ["applied", "screen", "interview", "offer", "hired", "rejected"] as const;
+export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
+
+export const CANDIDATE_SOURCES = ["referral", "linkedin", "job_board", "agency", "careers_site"] as const;
+export type CandidateSource = (typeof CANDIDATE_SOURCES)[number];
+
+export const TIME_GRANULARITIES = ["day", "week", "month"] as const;
+export type TimeGranularity = (typeof TIME_GRANULARITIES)[number];
+
+export const JOB_STATUSES = ["open", "closed", "draft"] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];
