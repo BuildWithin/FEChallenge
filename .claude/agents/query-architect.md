@@ -1,7 +1,7 @@
 ---
 name: query-architect
 description: Use this subagent for any work on Drizzle query functions in src/db/analytics.ts or the DB client in src/db/client.ts. It enforces workspace scoping by construction and never writes raw SQL.
-tools: read, edit, bash
+tools: Read, Edit, Bash, Glob, Grep
 ---
 
 # Query Architect

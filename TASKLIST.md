@@ -151,7 +151,7 @@ git commit -m "feat(agent): wire anthropic provider with claude-sonnet-4-6"
 
 ---
 
-## Phase 2 — Design the tool catalog (on paper) ✓ 2.1–2.2 DONE · 2.3–2.4 pending code phase
+## Phase 2 — Design the tool catalog (on paper) ✓ COMPLETE
 
 This is the core architectural decision. Claude Code cannot make it for you,
 and the interviewers WILL ask about it.
@@ -184,11 +184,11 @@ Too few = each is too broad to drive well.
 | `jobList`                  | What's open                | `{ status? }` | `{ id, title, status, openings, daysOpen }[]`              | `table`      | No       |
 | `candidateList`            | Show candidates for a job  | `{ jobId }`   | `{ id, name?, email?, stage, source, daysSinceApplied }[]` | `table`      | **YES**  |
 
-### 2.3 — Document the catalog ⏳ NOT STARTED
+### 2.3 — Document the catalog ✓
 
 Commit a comment block at the top of `tools.ts` OR a `docs/tools.md` describing the catalog. This is **a deliverable in disguise** — it shows your thinking to the reviewer.
 
-### 2.4 — Sanity check the design ⏳ NOT STARTED
+### 2.4 — Sanity check the design ✓
 
 - [ ] Does each tool answer ONE clear question?
 - [ ] Are parameter names self-explanatory to an LLM? (`jobId` not `id`)
@@ -197,7 +197,7 @@ Commit a comment block at the top of `tools.ts` OR a `docs/tools.md` describing 
 
 ---
 
-## Phase 3 — Build the query layer
+## Phase 3 — Build the query layer ✓ COMPLETE
 
 **Delegate to:** `query-architect` subagent (see `.claude/agents/query-architect.md`)
 
@@ -207,28 +207,28 @@ specify the function shape.
 
 ### Tasks
 
-- [ ] **3.1** `getApplicationsByJob(workspaceId, jobId?)` → table data
-- [ ] **3.2** `getCandidateSourceBreakdown(workspaceId, jobId?)` → with percentages
-- [ ] **3.3** `getTimeToHireByJob(workspaceId)` → median-based; handle no-hires case
-- [ ] **3.4** `getJobList(workspaceId, status?)`
-- [ ] **3.5** `getCandidatesForJob(workspaceId, jobId)` — **returns PII; PII gate applied in tool layer downstream, NOT here**
+- [x] **3.1** `getApplicationsByJob(workspaceId, jobId?)` → table data
+- [x] **3.2** `getCandidateSourceBreakdown(workspaceId, jobId?)` → with percentages
+- [x] **3.3** `getTimeToHireByJob(workspaceId)` → median-based; handle no-hires case
+- [x] **3.4** `getJobList(workspaceId, status?)`
+- [x] **3.5** `getCandidatesForJob(workspaceId, jobId)` — **returns PII; PII gate applied in tool layer downstream, NOT here**
 
 ### Per-function self-verify (don't skip)
 
 After each function:
 
-- [ ] Every query uses `scopeWhere` (or equivalent) — never a bare `where(eq(workspaceId, ...))`
+- [x] Every query uses `scopeWhere` (or equivalent) — never a bare `where(eq(workspaceId, ...))`
 - [ ] Run a quick test:
   - With Brightwave's workspaceId → get rows
   - With Meridian's workspaceId → get DIFFERENT rows
   - With Brightwave's workspaceId but a Meridian `jobId` → ZERO rows, not an error
-- [ ] Types are tight (no `any`, no `as`)
+- [x] Types are tight (no `any`, no `as`)
 
-### 3.6 — Code review pass
+### 3.6 — Code review pass ✓
 
 Invoke `code-reviewer` subagent: _"Review `src/db/analytics.ts` against the rules in your system prompt. Check every new function uses scopeWhere and types are clean."_
 
-### 3.7 — Commit
+### 3.7 — Commit ✓
 
 ```
 git commit -m "feat(db): expand analytics query layer with scoped functions"

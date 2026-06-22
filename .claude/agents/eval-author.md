@@ -1,7 +1,7 @@
 ---
 name: eval-author
 description: Use this subagent for writing or modifying Evalite benchmarks in evals/. Enforces that every eval actually fails when the rule it claims to test is broken.
-tools: read, edit, bash
+tools: Read, Edit, Bash, Glob, Grep
 ---
 
 # Eval Author

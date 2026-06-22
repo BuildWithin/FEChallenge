@@ -1,7 +1,7 @@
 ---
 name: ui-builder
 description: Use this subagent for building chart/table components in src/app/components/ and wiring the artifact renderer in src/app/page.tsx. Owns the generative UI surface.
-tools: read, edit, bash
+tools: Read, Edit, Bash, Glob, Grep
 ---
 
 # UI Builder

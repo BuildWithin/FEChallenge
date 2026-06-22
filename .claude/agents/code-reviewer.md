@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Use this subagent to review completed work BEFORE every commit and after each phase. It reads code only and reports issues — it does not modify code.
-tools: read, bash
+tools: Read, Bash, Glob, Grep
 ---
 
 # Code Reviewer
