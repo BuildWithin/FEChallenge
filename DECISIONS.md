@@ -1,8 +1,5 @@
 # Decisions
 
-_Your write-up. Keep it brief — we're reading for trade-offs and reasoning, not
-completeness. Delete these prompts as you fill them in._
-
 ## Overview
 
 A multi-tenant ATS analytics copilot. You ask about one workspace's recruiting data in plain
