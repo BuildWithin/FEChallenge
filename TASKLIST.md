@@ -49,13 +49,13 @@ We'll define 5 Claude Code subagents in `.claude/agents/`. Each has tight
 scope, hard rules, and a clear invocation trigger. The files are provided
 alongside this TASKLIST.
 
-| Subagent | Owns | Invoke when… |
-|---|---|---|
-| **query-architect** | `src/db/analytics.ts` query functions | Adding/modifying a Drizzle query |
-| **tool-builder** | `src/agent/tools.ts` tool definitions | Adding/modifying a tool the LLM can call |
-| **ui-builder** | `src/app/` chart/table components + renderer | Building generative UI components or wiring the renderer |
-| **eval-author** | `evals/*.eval.ts` benchmarks | Writing or modifying an Evalite eval |
-| **code-reviewer** | Independent review pass | Before every commit, after each phase |
+| Subagent            | Owns                                         | Invoke when…                                             |
+| ------------------- | -------------------------------------------- | -------------------------------------------------------- |
+| **query-architect** | `src/db/analytics.ts` query functions        | Adding/modifying a Drizzle query                         |
+| **tool-builder**    | `src/agent/tools.ts` tool definitions        | Adding/modifying a tool the LLM can call                 |
+| **ui-builder**      | `src/app/` chart/table components + renderer | Building generative UI components or wiring the renderer |
+| **eval-author**     | `evals/*.eval.ts` benchmarks                 | Writing or modifying an Evalite eval                     |
+| **code-reviewer**   | Independent review pass                      | Before every commit, after each phase                    |
 
 **Why subagents and not a single prompt?** Each subagent has different
 non-negotiables. The query-architect must never skip `scopeWhere`. The
@@ -115,20 +115,19 @@ If you can't answer one, re-read the file. Do not move forward.
 
 ---
 
-## Phase 1 — Wire the real model ⏳ BLOCKED — waiting for Anthropic API key
+## Phase 1 — Wire the real model ✓ COMPLETE
 
-### 1.1 — Acquire an API key ⏳ BLOCKED
+### 1.1 — Acquire an API key ✓
 
 - **Anthropic** (recommended — they explicitly use Claude Code internally; aligning your model with their stack is a small but real signal)
   - Free credits at console.anthropic.com
-  - Or email `jobs@buildwithin.com` for a scoped key
 - Add to `.env.local`:
   ```
   AI_PROVIDER=anthropic
   ANTHROPIC_API_KEY=sk-ant-...
   ```
 
-### 1.2 — Wire the provider ⏳ NOT STARTED
+### 1.2 — Wire the provider ✓
 
 **Delegate to:** No subagent — this is a small, surgical change. Do it directly with Claude Code main.
 
@@ -136,13 +135,13 @@ If you can't answer one, re-read the file. Do not move forward.
 
 > Read `src/agent/provider.ts` and `.env.example`. When `AI_PROVIDER=anthropic`, the provider factory should return an Anthropic provider configured with `claude-sonnet-4-6` (or current equivalent — check the Anthropic SDK docs if unsure). Mirror the existing structure. Do not modify anything else.
 
-### 1.3 — Smoke test ⏳ NOT STARTED
+### 1.3 — Smoke test ✓
 
 - [ ] Restart `pnpm dev`
-- [ ] Ask: *"How does my pipeline look by stage?"*
+- [ ] Ask: _"How does my pipeline look by stage?"_
 - [ ] **Done when:** real Claude responds, the existing `applicationCountByStage` tool fires, the response includes the stage data
 
-### 1.4 — Commit ⏳ NOT STARTED
+### 1.4 — Commit ✓
 
 ```
 git commit -m "feat(agent): wire anthropic provider with claude-sonnet-4-6"
@@ -176,14 +175,14 @@ Too few = each is too broad to drive well.
 
 **Recommended starting set** (validate against actual schema):
 
-| Tool name | Question answered | Input params | Output shape | Display hint | Has PII? |
-|---|---|---|---|---|---|
-| `applicationCountByStage` | Pipeline shape | `{ jobId? }` | `{ stage, count }[]` | `bar_chart` | No |
-| `applicationsByJob` | Volume per role | `{}` | `{ jobId, jobTitle, count, avgDaysInPipeline }[]` | `table` | No |
-| `candidateSourceBreakdown` | Where candidates come from | `{ jobId? }` | `{ source, count, percentage }[]` | `bar_chart` | No |
-| `timeToHireByJob` | Speed per role | `{}` | `{ jobTitle, medianDays, hiredCount }[]` | `table` | No |
-| `jobList` | What's open | `{ status? }` | `{ id, title, status, openings, daysOpen }[]` | `table` | No |
-| `candidateList` | Show candidates for a job | `{ jobId }` | `{ id, name?, email?, stage, source, daysSinceApplied }[]` | `table` | **YES** |
+| Tool name                  | Question answered          | Input params  | Output shape                                               | Display hint | Has PII? |
+| -------------------------- | -------------------------- | ------------- | ---------------------------------------------------------- | ------------ | -------- |
+| `applicationCountByStage`  | Pipeline shape             | `{ jobId? }`  | `{ stage, count }[]`                                       | `bar_chart`  | No       |
+| `applicationsByJob`        | Volume per role            | `{}`          | `{ jobId, jobTitle, count, avgDaysInPipeline }[]`          | `table`      | No       |
+| `candidateSourceBreakdown` | Where candidates come from | `{ jobId? }`  | `{ source, count, percentage }[]`                          | `bar_chart`  | No       |
+| `timeToHireByJob`          | Speed per role             | `{}`          | `{ jobTitle, medianDays, hiredCount }[]`                   | `table`      | No       |
+| `jobList`                  | What's open                | `{ status? }` | `{ id, title, status, openings, daysOpen }[]`              | `table`      | No       |
+| `candidateList`            | Show candidates for a job  | `{ jobId }`   | `{ id, name?, email?, stage, source, daysSinceApplied }[]` | `table`      | **YES**  |
 
 ### 2.3 — Document the catalog ⏳ NOT STARTED
 
@@ -227,7 +226,7 @@ After each function:
 
 ### 3.6 — Code review pass
 
-Invoke `code-reviewer` subagent: *"Review `src/db/analytics.ts` against the rules in your system prompt. Check every new function uses scopeWhere and types are clean."*
+Invoke `code-reviewer` subagent: _"Review `src/db/analytics.ts` against the rules in your system prompt. Check every new function uses scopeWhere and types are clean."_
 
 ### 3.7 — Commit
 
@@ -242,6 +241,7 @@ git commit -m "feat(db): expand analytics query layer with scoped functions"
 **Delegate to:** `tool-builder` subagent
 
 This phase is the **security-critical layer**. The subagent enforces:
+
 - `workspaceId` comes from `ctx`/`context`, never from LLM params
 - Every tool returns `{ data, displayHint: { type, ... } }`
 - Tool descriptions are precise and would help the LLM pick correctly
@@ -265,7 +265,7 @@ For each query function from Phase 3, build the matching tool:
 
 ### 4.6 — Code review pass
 
-Invoke `code-reviewer`: *"Review `src/agent/tools.ts`. Look specifically for workspaceId leaking into tool input schemas. Look for tools that bypass the query layer and write SQL directly."*
+Invoke `code-reviewer`: _"Review `src/agent/tools.ts`. Look specifically for workspaceId leaking into tool input schemas. Look for tools that bypass the query layer and write SQL directly."_
 
 ### 4.7 — Commit
 
@@ -284,16 +284,16 @@ git commit -m "feat(agent): expand tool catalog with scoped tools"
 Replace the stub with a typed function:
 
 ```ts
-export type Role = 'analyst' | 'recruiter' | 'admin';
+export type Role = "analyst" | "recruiter" | "admin";
 
 // PII fields, centralized so they can't be forgotten
-export const PII_FIELDS = ['name', 'email', 'phone'] as const;
+export const PII_FIELDS = ["name", "email", "phone"] as const;
 
 export function stripPII<T extends Record<string, unknown>>(
   records: T[],
   role: Role,
-): Array<Omit<T, typeof PII_FIELDS[number]> | T> {
-  if (role === 'recruiter' || role === 'admin') return records;
+): Array<Omit<T, (typeof PII_FIELDS)[number]> | T> {
+  if (role === "recruiter" || role === "admin") return records;
   // analyst: strip PII
   return records.map((r) => {
     const cleaned = { ...r };
@@ -312,20 +312,20 @@ After the query returns, before returning from `execute`:
 ```ts
 const rows = await getCandidatesForJob(ctx.workspaceId, input.jobId);
 const safe = stripPII(rows, ctx.role);
-return { data: safe, displayHint: { type: 'table' } };
+return { data: safe, displayHint: { type: "table" } };
 ```
 
 ### 5.3 — Manual verification
 
 - [ ] Switch to **analyst** role in the UI
-- [ ] Ask: *"Show me candidates for [a job from the seed]"*
+- [ ] Ask: _"Show me candidates for [a job from the seed]"_
 - [ ] Confirm: **no names, emails, or phones** appear in the UI
 - [ ] **Critical:** open browser DevTools → Network tab → inspect the chat response payload. PII must not be in the wire format. (If it's stripped only in the UI but present on the wire, that's a fail.)
 - [ ] Switch to **recruiter** role, same question → PII fields ARE present
 
 ### 5.4 — Code review pass
 
-Invoke `code-reviewer`: *"Review `src/db/permissions.ts` and the `candidateList` tool. Confirm PII stripping happens server-side, before serialization. Confirm `PII_FIELDS` is the single source of truth."*
+Invoke `code-reviewer`: _"Review `src/db/permissions.ts` and the `candidateList` tool. Confirm PII stripping happens server-side, before serialization. Confirm `PII_FIELDS` is the single source of truth."_
 
 ### 5.5 — Commit
 
@@ -351,7 +351,7 @@ actually want to use" — this is where product taste shows.
   - Props: `data: Record<string, unknown>[]`
   - Auto-infers columns from first row keys
   - Header row, hover, right-aligned numbers
-- [ ] **`src/app/components/StatCard.tsx`** *(optional but nice)* — for single-number answers
+- [ ] **`src/app/components/StatCard.tsx`** _(optional but nice)_ — for single-number answers
 
 ### 6.2 — Wire the renderer in `src/app/page.tsx`
 
@@ -360,14 +360,18 @@ Replace the stub with a switch on `displayHint.type`:
 ```tsx
 function renderArtifact(artifact: Artifact) {
   switch (artifact.displayHint.type) {
-    case 'bar_chart':
+    case "bar_chart":
       return <BarChart data={mapToBarData(artifact.data)} />;
-    case 'table':
+    case "table":
       return <DataTable data={artifact.data as Record<string, unknown>[]} />;
-    case 'stat_card':
+    case "stat_card":
       return <StatCard {...artifact.data} />;
     default:
-      return <pre className="text-xs opacity-50">{JSON.stringify(artifact, null, 2)}</pre>;
+      return (
+        <pre className="text-xs opacity-50">
+          {JSON.stringify(artifact, null, 2)}
+        </pre>
+      );
   }
 }
 ```
@@ -384,19 +388,19 @@ function renderArtifact(artifact: Artifact) {
 
 For each tool, ask a natural question in the chat and confirm the rendered output:
 
-| Question | Expected tool | Expected render |
-|---|---|---|
-| "How does my pipeline look?" | `applicationCountByStage` | Bar chart |
-| "Which jobs have the most applicants?" | `applicationsByJob` | Table |
-| "Where are candidates coming from?" | `candidateSourceBreakdown` | Bar chart |
-| "How long does hiring take?" | `timeToHireByJob` | Table |
-| "What jobs are open?" | `jobList` | Table |
-| "Show candidates for [job]" (recruiter) | `candidateList` | Table with names |
-| "Show candidates for [job]" (analyst) | `candidateList` | Table WITHOUT names |
+| Question                                | Expected tool              | Expected render     |
+| --------------------------------------- | -------------------------- | ------------------- |
+| "How does my pipeline look?"            | `applicationCountByStage`  | Bar chart           |
+| "Which jobs have the most applicants?"  | `applicationsByJob`        | Table               |
+| "Where are candidates coming from?"     | `candidateSourceBreakdown` | Bar chart           |
+| "How long does hiring take?"            | `timeToHireByJob`          | Table               |
+| "What jobs are open?"                   | `jobList`                  | Table               |
+| "Show candidates for [job]" (recruiter) | `candidateList`            | Table with names    |
+| "Show candidates for [job]" (analyst)   | `candidateList`            | Table WITHOUT names |
 
 ### 6.5 — Code review pass
 
-Invoke `code-reviewer`: *"Review the components and page.tsx renderer. Are types tight? Are components dumb (no fetching)? Does the renderer handle unknown display hints without crashing?"*
+Invoke `code-reviewer`: _"Review the components and page.tsx renderer. Are types tight? Are components dumb (no fetching)? Does the renderer handle unknown display hints without crashing?"_
 
 ### 6.6 — Commit
 
@@ -426,7 +430,7 @@ this — but verify yourself by breaking the rule and confirming the eval fails.
   - Case B: role=recruiter, same call → assert those fields ARE present
   - **Self-test:** temporarily skip `stripPII` in the tool → confirm Case A fails
   - Restore the code
-- [ ] **7.3** *(Optional)* `evals/answer-quality.eval.ts`
+- [ ] **7.3** _(Optional)_ `evals/answer-quality.eval.ts`
   - 2–3 natural-language questions → assert the right tool is called with the right params
   - Useful but not required — only if you have time
 
@@ -455,20 +459,21 @@ Analyze all four in DECISIONS.md, then implement the winner.
 
 ### The four options
 
-| Option | What it is | Demo value | Complexity | Production value | Fit for THIS app |
-|---|---|---|---|---|---|
-| **Typed structured answer** | Agent emits a Zod-validated final structure alongside the artifact | Low (invisible) | Low-Med | Medium (downstream type safety) | Medium |
-| **Resumable streams** | Reconnect mid-stream after disconnect | Low (need a flaky connection to demo) | High | High (for long answers, mobile) | Low — overkill |
-| **Response caching** | Cache tool results by `(workspaceId, tool, params)` | **High** (visible "instant" re-asks) | Med (must include workspaceId in key — extends isolation story) | **High** (LLM and DB calls are expensive) | **HIGH** |
-| **Rate limiting** | Throttle per workspace/user | Low (no visible demo) | Low | High (production reality) | Low for a 5-min demo |
+| Option                      | What it is                                                         | Demo value                            | Complexity                                                      | Production value                          | Fit for THIS app     |
+| --------------------------- | ------------------------------------------------------------------ | ------------------------------------- | --------------------------------------------------------------- | ----------------------------------------- | -------------------- |
+| **Typed structured answer** | Agent emits a Zod-validated final structure alongside the artifact | Low (invisible)                       | Low-Med                                                         | Medium (downstream type safety)           | Medium               |
+| **Resumable streams**       | Reconnect mid-stream after disconnect                              | Low (need a flaky connection to demo) | High                                                            | High (for long answers, mobile)           | Low — overkill       |
+| **Response caching**        | Cache tool results by `(workspaceId, tool, params)`                | **High** (visible "instant" re-asks)  | Med (must include workspaceId in key — extends isolation story) | **High** (LLM and DB calls are expensive) | **HIGH**             |
+| **Rate limiting**           | Throttle per workspace/user                                        | Low (no visible demo)                 | Low                                                             | High (production reality)                 | Low for a 5-min demo |
 
 ### Recommendation: **Response caching**
 
 **Why:**
+
 1. **Reinforces the isolation story** — cache key MUST include `workspaceId`. Forgetting it is the cache-equivalent of forgetting `scopeWhere`. You can talk about this in the Loom and DECISIONS.md.
 2. **Demoable** — ask the same question twice, second is instant. Visually obvious.
 3. **Real perf win** — LLM tokens cost money; same question shouldn't pay twice.
-4. **Composes with PII** — cache the *pre-permission-filter* data and apply `stripPII` after retrieval, so analyst-cached results don't leak to recruiter (and vice versa, role belongs in the cache key OR the filter is post-cache).
+4. **Composes with PII** — cache the _pre-permission-filter_ data and apply `stripPII` after retrieval, so analyst-cached results don't leak to recruiter (and vice versa, role belongs in the cache key OR the filter is post-cache).
 
 ### If you implement caching
 
@@ -483,6 +488,7 @@ Analyze all four in DECISIONS.md, then implement the winner.
 ### 8.1 — Write the trade-off analysis in DECISIONS.md
 
 Even before implementing, document:
+
 - The four options + trade-offs
 - Why you picked caching
 - What you'd implement next if you had another day
@@ -585,8 +591,8 @@ Required sections (in this order):
 8. **Deployment** — Vercel + Neon, what changed, trade-offs
 
 9. **What I cut and why** — be honest; cuts signal judgment
-   - Example: *"Skipped resumable streams — would have taken 2h and added little demo value for the local-network scenarios the reviewer will use"*
-   - Example: *"Skipped admin-specific tools — kept the catalog tight; admin and recruiter have the same data access by spec"*
+   - Example: _"Skipped resumable streams — would have taken 2h and added little demo value for the local-network scenarios the reviewer will use"_
+   - Example: _"Skipped admin-specific tools — kept the catalog tight; admin and recruiter have the same data access by spec"_
 
 10. **What I'd do with another day** — shows product thinking
     - Cite-the-rows affordance (every chart bar clickable to inspect the rows behind it)
@@ -596,9 +602,9 @@ Required sections (in this order):
 11. **Working with the agent** (REQUIRED — brief explicitly asks for this)
     - **What I delegated** — query writing, tool wrapping, component scaffolding, eval bodies
     - **Where it was wrong and I caught it** — be specific, e.g.:
-      - *"Claude Code initially put `workspaceId` in the tool's Zod input schema — caught in code review, moved to context"*
-      - *"Eval initially asserted on `length > 0` which would pass even with leaked data — rewrote to check `workspaceId` on every row"*
-      - *"Permission filter was applied in the UI only — caught in network tab review, moved server-side"*
+      - _"Claude Code initially put `workspaceId` in the tool's Zod input schema — caught in code review, moved to context"_
+      - _"Eval initially asserted on `length > 0` which would pass even with leaked data — rewrote to check `workspaceId` on every row"_
+      - _"Permission filter was applied in the UI only — caught in network tab review, moved server-side"_
     - **What I'd never let it decide** — tool catalog shape, scoping pattern, permission boundary location, eval semantics
 
 ### 10.2 — Record the Loom (≤5 min)
@@ -638,20 +644,22 @@ Copy-paste templates. Adjust the specifics, keep the structure.
 ### Query architect
 
 > Use the **query-architect** subagent. Add a function `getXxx(workspaceId: string, ...params)` to `src/db/analytics.ts`. It should:
+>
 > - Accept these parameters: ...
 > - Return this shape: ...
 > - Use `scopeWhere` for the workspace filter
 > - Mirror the existing `applicationCountByStage` pattern
-> Do not add other functions. Do not modify existing functions.
+>   Do not add other functions. Do not modify existing functions.
 
 ### Tool builder
 
 > Use the **tool-builder** subagent. Add a tool `xxx` to `src/agent/tools.ts` that wraps the `getXxx` query function. It should:
+>
 > - Accept these LLM-supplied params: ... (workspaceId is NOT one of them)
 > - Read `workspaceId` from execution context
 > - Description: "..."
 > - Return `{ data, displayHint: { type: 'bar_chart' | 'table' | ... } }`
-> Mirror the existing reference tool's structure exactly.
+>   Mirror the existing reference tool's structure exactly.
 
 ### UI builder
 
