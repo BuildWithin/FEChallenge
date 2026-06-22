@@ -30,9 +30,17 @@ export const PII_COLUMNS: Record<string, readonly string[]> = {
 /**
  * Whether `role` may read `table.column`.
  *
- * TODO(candidate): implement real enforcement. Right now this is permissive —
- * every role can read everything, including PII. That's the gap to close.
+ * Enforcement is driven entirely by `PII_COLUMNS` (the single source of truth):
+ * a column is readable unless it is PII for `table` AND the caller is an
+ * `analyst`. `recruiter` and `admin` may read everything.
+ *
+ * This predicate is the one decision point. The query layer (src/db/analytics.ts)
+ * consumes it to *omit* PII columns from the projection entirely — so a leaking
+ * query for the wrong role is unrepresentable, not merely rejected after the fact.
  */
-export function canReadColumn(_role: Role, _table: string, _column: string): boolean {
-  return true;
+export function canReadColumn(role: Role, table: string, column: string): boolean {
+  const piiColumns = PII_COLUMNS[table];
+  const isPii = piiColumns?.includes(column) ?? false;
+  if (!isPii) return true;
+  return role !== "analyst";
 }
