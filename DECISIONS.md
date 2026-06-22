@@ -17,6 +17,13 @@ judged answer quality.
 One thing is deliberately a written plan rather than code, and I say why below: the
 response-caching stretch.
 
+## Walkthrough
+
+A short Loom walking through the copilot. It's deliberately brief and doesn't cover
+everything, since the recording window was short, so please read it alongside the notes
+below rather than as a full tour:
+https://www.loom.com/share/e8d9f531ee754b858024aafb4e278715
+
 ## Architecture & key decisions
 
 - **Tool catalog** — Apart from the `applicationCountByStage` example the repo already
@@ -177,18 +184,20 @@ catches the real cases (an empty or content-free answer fails), which is the poi
 
 ## Trade-offs & cuts
 
-- **Empty time buckets aren't filled** in `applicationsOverTime`. The line connects the buckets
-  that have data; no `generate_series`. A simplicity cut, fine for this dataset.
-- **PII safety is typed at the query projection, not the call site** (see Permissions). The role
-  is a runtime header value, so a full compile-time guarantee would need a typed query builder or
-  heavy generics. I chose the chokepoint plus the eval instead.
-- **Hand-rolled SVG, no chart library.** Right for three simple shapes and a small dependency
-  surface; a real product would want a library for axes, tooltips, and responsiveness.
-- **The answer-quality judge is the same model family, and single-turn.** It's a grounding
-  sanity check, not an independent oracle, and it doesn't cover the two-tool chain. With another
-  day I'd judge with a different model and add multi-step cases, still key-gated and apart from
-  the safety evals.
-- **Caching is a plan, not built** (see the stretch below).
+- **Time buckets with gaps.** `applicationsOverTime` skips empty buckets; the line connects
+  the points that have data. Fine for this dataset. In production I'd fill gaps with
+  `generate_series` so the chart shows true zero periods.
+- **PII typed at the query, not the call site.** The role is a runtime header, so full
+  compile-time safety would need a typed query builder or heavy generics. Instead I have one
+  chokepoint (`canSeePII` in the projection) plus an eval that breaks if PII leaks. In
+  production I'd add a branded-type wrapper so the compiler rejects PII access for the wrong role.
+- **Hand-rolled SVG charts.** Three simple shapes, small dependency surface, easy to read.
+  In production I'd use a library for axes, tooltips, responsiveness, and accessibility.
+- **Answer-quality judge uses the same model family.** Single-turn, doesn't cover multi-tool
+  chains. It catches the real failures (empty or ungrounded answers) and is stable at
+  temperature 0. Next step: judge with a different model and add multi-step cases.
+- **Caching is a plan, not code** (see stretch below). Adding a cache late risks a subtle PII
+  leak if the key omits the role, so I wrote the design rather than shipping a brittle layer.
 
 ## Stretch — response caching
 
@@ -211,7 +220,8 @@ Using AI tools is encouraged. Briefly:
   - Commits.
   - Documentation writing.
   - Major code snippets.
-  - SVG generative UI
+  - SVG generative UI.
+  - Tests.
 - What the agent did wrong that I caught:
   - The first thing I caught was the agent letting model errors (for example, a
     bad input) reach the UI as a raw error, instead of showing the user a
