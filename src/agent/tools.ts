@@ -1,3 +1,32 @@
+/**
+ * Tool catalog — 6 tools covering the core recruiting analytics questions.
+ *
+ * Design rules:
+ *  - Each tool answers ONE question. The LLM picks by description, not by code.
+ *  - workspaceId is NEVER in the input schema — it comes from ctx. Always.
+ *  - Only `candidateList` returns PII. stripPII() gates it by role at the boundary.
+ *
+ * Catalog:
+ *
+ *  applicationCountByStage   "How does my pipeline look by stage?"
+ *                            params: { jobId? }   display: bar_chart
+ *
+ *  applicationsByJob         "Which roles have the most applicants?"
+ *                            params: {}           display: table
+ *
+ *  candidateSourceBreakdown  "Where are candidates coming from?"
+ *                            params: { jobId? }   display: bar_chart
+ *
+ *  timeToHireByJob           "How long does hiring take per role?"
+ *                            params: {}           display: table
+ *
+ *  jobList                   "What jobs are open right now?"
+ *                            params: { status? }  display: table
+ *
+ *  candidateList             "Show me candidates for a job."        ⚠ PII
+ *                            params: { jobId }    display: table
+ */
+
 import { tool } from "ai";
 import { z } from "zod";
 
