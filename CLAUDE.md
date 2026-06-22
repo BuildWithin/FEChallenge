@@ -65,7 +65,7 @@ src/
     schema.ts          # Drizzle table definitions — READ ONLY for the agent
     seed.ts            # Seeds Brightwave + Meridian — DO NOT add workspaces
     analytics.ts       # ALL query functions live here; query-architect owns it
-    permissions.ts     # PII filter (stripPII) and PII_FIELDS const
+    permissions.ts     # PII filter (stripPII) and PII_COLUMNS const
     client.ts          # DB client (PGlite dev / Neon prod)
   agent/
     tools.ts           # Tool catalog; tool-builder owns it

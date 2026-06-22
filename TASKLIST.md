@@ -236,7 +236,7 @@ git commit -m "feat(db): expand analytics query layer with scoped functions"
 
 ---
 
-## Phase 4 — Build the tools (the agent's tool catalog)
+## Phase 4 — Build the tools (the agent's tool catalog) ✓ COMPLETE
 
 **Delegate to:** `tool-builder` subagent
 
@@ -250,24 +250,24 @@ This phase is the **security-critical layer**. The subagent enforces:
 
 For each query function from Phase 3, build the matching tool:
 
-- [ ] **4.1** `applicationsByJob` tool → wraps `getApplicationsByJob`
-- [ ] **4.2** `candidateSourceBreakdown` tool
-- [ ] **4.3** `timeToHireByJob` tool
-- [ ] **4.4** `jobList` tool
-- [ ] **4.5** `candidateList` tool — **PII gate goes here** (Phase 5)
+- [x] **4.1** `applicationsByJob` tool → wraps `getApplicationsByJob`
+- [x] **4.2** `candidateSourceBreakdown` tool
+- [x] **4.3** `timeToHireByJob` tool
+- [x] **4.4** `jobList` tool
+- [x] **4.5** `candidateList` tool — **PII gate goes here** (Phase 5)
 
 ### Per-tool self-verify
 
-- [ ] Tool's Zod input schema does NOT include `workspaceId`
-- [ ] `execute` reads workspaceId from context, passes it to the query function
-- [ ] Description reads naturally — would the LLM pick this for the right question?
-- [ ] Display hint type matches what the UI will render
+- [x] Tool's Zod input schema does NOT include `workspaceId`
+- [x] `execute` reads workspaceId from context, passes it to the query function
+- [x] Description reads naturally — would the LLM pick this for the right question?
+- [x] Display hint type matches what the UI will render
 
-### 4.6 — Code review pass
+### 4.6 — Code review pass ✓
 
 Invoke `code-reviewer`: _"Review `src/agent/tools.ts`. Look specifically for workspaceId leaking into tool input schemas. Look for tools that bypass the query layer and write SQL directly."_
 
-### 4.7 — Commit
+### 4.7 — Commit ✓
 
 ```
 git commit -m "feat(agent): expand tool catalog with scoped tools"
@@ -275,11 +275,11 @@ git commit -m "feat(agent): expand tool catalog with scoped tools"
 
 ---
 
-## Phase 5 — Permissions (PII gate)
+## Phase 5 — Permissions (PII gate) ✓ COMPLETE
 
 **Delegate to:** Main Claude Code (small, surgical) + `code-reviewer` at the end.
 
-### 5.1 — Implement `src/db/permissions.ts`
+### 5.1 — Implement `src/db/permissions.ts` ✓
 
 Replace the stub with a typed function:
 
@@ -287,17 +287,17 @@ Replace the stub with a typed function:
 export type Role = "analyst" | "recruiter" | "admin";
 
 // PII fields, centralized so they can't be forgotten
-export const PII_FIELDS = ["name", "email", "phone"] as const;
+export const PII_COLUMNS = ["name", "email", "phone"] as const;
 
 export function stripPII<T extends Record<string, unknown>>(
   records: T[],
   role: Role,
-): Array<Omit<T, (typeof PII_FIELDS)[number]> | T> {
+): Array<Omit<T, (typeof PII_COLUMNS)[number]> | T> {
   if (role === "recruiter" || role === "admin") return records;
   // analyst: strip PII
   return records.map((r) => {
     const cleaned = { ...r };
-    for (const f of PII_FIELDS) delete (cleaned as Record<string, unknown>)[f];
+    for (const f of PII_COLUMNS) delete (cleaned as Record<string, unknown>)[f];
     return cleaned;
   });
 }
@@ -323,11 +323,11 @@ return { data: safe, displayHint: { type: "table" } };
 - [ ] **Critical:** open browser DevTools → Network tab → inspect the chat response payload. PII must not be in the wire format. (If it's stripped only in the UI but present on the wire, that's a fail.)
 - [ ] Switch to **recruiter** role, same question → PII fields ARE present
 
-### 5.4 — Code review pass
+### 5.4 — Code review pass ✓
 
-Invoke `code-reviewer`: _"Review `src/db/permissions.ts` and the `candidateList` tool. Confirm PII stripping happens server-side, before serialization. Confirm `PII_FIELDS` is the single source of truth."_
+Invoke `code-reviewer`: _"Review `src/db/permissions.ts` and the `candidateList` tool. Confirm PII stripping happens server-side, before serialization. Confirm `PII_COLUMNS` is the single source of truth."_
 
-### 5.5 — Commit
+### 5.5 — Commit ✓
 
 ```
 git commit -m "feat(db): enforce PII permissions by role at tool boundary"
@@ -582,7 +582,7 @@ Required sections (in this order):
 
 4. **Tenant isolation** — the `scopeWhere` pattern, why it's right by construction, what would break if you forgot
 
-5. **Permissions** — where the gate lives (server-side, post-query, pre-serialization), centralization of `PII_FIELDS`, why the LLM is not trusted to filter
+5. **Permissions** — where the gate lives (server-side, post-query, pre-serialization), centralization of `PII_COLUMNS`, why the LLM is not trusted to filter
 
 6. **UI / generative rendering** — the display-hint contract, why the LLM picks the data shape, not the visual
 

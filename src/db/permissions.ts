@@ -1,15 +1,10 @@
 /**
  * Role + column-permission model for the analytics copilot.
  *
- * The copilot serves users with different roles. Some columns are PII and must
- * not be readable by every role.
- *
- * TODO(candidate): PII permissions are DEFINED here but NOT yet ENFORCED.
- * An `analyst` should never be able to read PII columns (candidate
- * name/email/phone); `recruiter` and `admin` may. Wire enforcement into the
- * query layer (src/db/analytics.ts) so it cannot be skipped — ideally make a
- * PII-leaking query for the wrong role *unrepresentable*, not merely rejected
- * after the fact. Then prove it with an eval.
+ * PII enforcement is implemented via `stripPII`, applied at the tool boundary
+ * in `src/agent/tools.ts` — before results are serialized, never in the UI or
+ * LLM prompt. `analyst` role never receives candidate name/email/phone.
+ * `recruiter` and `admin` receive the full record.
  */
 
 export const ROLES = ["admin", "recruiter", "analyst"] as const;
@@ -23,16 +18,41 @@ export function isRole(value: string): value is Role {
 export const DEFAULT_ROLE: Role = "admin";
 
 /** Columns considered PII, keyed by table. Reading these requires a non-analyst role. */
-export const PII_COLUMNS: Record<string, readonly string[]> = {
-  candidates: ["name", "email", "phone"],
+export const PII_COLUMNS = {
+  candidates: ["name", "email", "phone"] as const,
 };
+
+type CandidatePIIKey = (typeof PII_COLUMNS.candidates)[number];
+
+/**
+ * Strip PII fields from candidate records for analyst-role callers.
+ * Recruiters and admins receive the full record. Applied at the tool boundary,
+ * before the result is serialized — never in the UI or LLM prompt.
+ */
+export function stripPII<T extends Record<string, unknown>>(
+  records: T[],
+  role: Role,
+): Array<Omit<T, CandidatePIIKey>> {
+  // Recruiter/admin: records are returned unmodified. The cast is intentional —
+  // T is structurally assignable to Omit<T, CandidatePIIKey> (superset satisfies subset),
+  // and these roles are authorised to read PII, so the full record is the correct return.
+  if (role === "recruiter" || role === "admin") return records as Array<Omit<T, CandidatePIIKey>>;
+  return records.map((r) => {
+    const cleaned = { ...r };
+    for (const field of PII_COLUMNS.candidates) {
+      delete (cleaned as Record<string, unknown>)[field];
+    }
+    return cleaned as Omit<T, CandidatePIIKey>;
+  });
+}
 
 /**
  * Whether `role` may read `table.column`.
- *
- * TODO(candidate): implement real enforcement. Right now this is permissive —
- * every role can read everything, including PII. That's the gap to close.
+ * Retained for potential column-level checks; enforcement is via stripPII.
  */
-export function canReadColumn(_role: Role, _table: string, _column: string): boolean {
+export function canReadColumn(role: Role, table: string, column: string): boolean {
+  if (table in PII_COLUMNS && PII_COLUMNS[table as keyof typeof PII_COLUMNS].includes(column as CandidatePIIKey)) {
+    return role === "recruiter" || role === "admin";
+  }
   return true;
 }

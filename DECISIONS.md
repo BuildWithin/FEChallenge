@@ -103,6 +103,48 @@ Five query functions added to `src/db/analytics.ts`, all scoped through `scopeWh
 
 ---
 
+## Phase 4 — Tool catalog
+
+### What was built
+
+Five tools added to `buildTools` in `src/agent/tools.ts`:
+
+| Tool | Wraps | Display |
+|---|---|---|
+| `applicationsByJob` | `getApplicationsByJob` | `table` |
+| `candidateSourceBreakdown` | `getCandidateSourceBreakdown` | `bar` |
+| `timeToHireByJob` | `getTimeToHireByJob` | `table` |
+| `jobList` | `getJobList` | `table` |
+| `candidateList` | `getCandidatesForJob` | `table` (role-aware columns) |
+
+### Key decisions
+
+- **`workspaceId` never in Zod input schema:** all tools read it from `ctx` (closed over from `buildTools(ctx)`). Putting it in the schema would let the LLM supply an arbitrary workspace ID — a tenant isolation bypass. Caught by code-reviewer in prior phases; architecture enforces it by construction.
+- **Display columns role-aware in `candidateList`:** `piiCols` derived from `PII_COLUMNS.candidates` at execute time. Analyst gets `["stage", "source", "daysSinceApplied"]`; recruiter/admin get the full list including `["name", "email", "phone"]`. Prevents empty PII column headers from rendering for analyst-role callers.
+- **`PII_COLUMNS.candidates` is the single source of truth:** column list derived in `tools.ts` via spread rather than re-declared. If a new PII field is added to `permissions.ts`, the display gate updates automatically.
+- **No tool writes Drizzle queries inline:** all go through the analytics layer. Enforced by the tool-builder subagent's rules and verified by code-reviewer.
+
+---
+
+## Phase 5 — PII gate
+
+### What was built
+
+- `stripPII<T>(records, role)` implemented in `src/db/permissions.ts`
+- Applied in `candidateList` execute function, between query return and `result()` call
+- `PII_COLUMNS` typed `as const` for literal type inference; `CandidatePIIKey` derived from it
+- `canReadColumn` made real (reads from `PII_COLUMNS`), replacing permissive stub
+- Return type `Array<Omit<T, CandidatePIIKey>>` — TypeScript enforces the stripped shape at the call site
+
+### Key decisions
+
+- **Gate at tool boundary, not query layer:** stripping in the query function would make `getCandidatesForJob` role-dependent — it couldn't be called without a role, and couldn't be tested in isolation. The tool layer is the right boundary: it has `ctx.role`, sits between DB and serialization, and is the last server-side point before the result leaves the process.
+- **Not in the LLM prompt, not in the UI:** these are both wrong boundaries. The LLM can't be trusted to redact; the UI is post-serialization (PII already on the wire). Hard rule 4 in CLAUDE.md.
+- **`stripPII` return type `Array<Omit<T, CandidatePIIKey>>`:** the union `| T` was initially used on the fast path but widened the type enough for callers to access `.name` post-call. Changed to the stripped type unconditionally; recruiter/admin path uses `as` with an explanatory comment (T is structurally assignable to Omit<T, ...> — superset satisfies subset).
+- **`phone` included in PII gate:** initial implementation gated `name` and `email` but omitted `phone` from `candidateList` columns. Caught in code review — `phone` is in `PII_COLUMNS.candidates`, so it must be stripped for analysts and only shown to authorized roles.
+
+---
+
 ## Overview
 
 What you built and the state it's in. If something is half-done on purpose, say so —

@@ -30,7 +30,8 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { applicationCountByStage, type AnalyticsCtx } from "@/db/analytics";
+import { applicationCountByStage, getApplicationsByJob, getCandidateSourceBreakdown, getTimeToHireByJob, getJobList, getCandidatesForJob, type AnalyticsCtx } from "@/db/analytics";
+import { stripPII, PII_COLUMNS } from "@/db/permissions";
 import type { Display, ToolResult } from "./artifact";
 
 /**
@@ -69,8 +70,74 @@ export function buildTools(ctx: AnalyticsCtx) {
       },
     }),
 
-    // TODO(candidate): design and add the tools that make this a genuinely
-    // useful analytics copilot for this workspace's recruiting data.
+    applicationsByJob: tool({
+      description:
+        "Returns application counts grouped by job. Useful for questions like 'which roles get the most applicants?' or 'how is hiring volume distributed across jobs?'. Returns one row per job with the job title, application count, and average days in pipeline.",
+      inputSchema: z.object({ jobId: z.string().optional() }),
+      async execute({ jobId }) {
+        const rows = await getApplicationsByJob(ctx, { jobId });
+        return result(rows, {
+          kind: "table",
+          columns: ["jobTitle", "count", "avgDaysInPipeline"],
+        });
+      },
+    }),
+
+    candidateSourceBreakdown: tool({
+      description:
+        "Returns candidate counts grouped by source (LinkedIn, referral, job board, etc). Useful for 'where are candidates coming from?' or 'which sourcing channels are most effective?'. Includes percentage of total per source.",
+      inputSchema: z.object({ jobId: z.string().optional() }),
+      async execute({ jobId }) {
+        const rows = await getCandidateSourceBreakdown(ctx, { jobId });
+        return result(rows, {
+          kind: "bar",
+          x: "source",
+          y: "count",
+          title: "Candidates by source",
+        });
+      },
+    }),
+
+    timeToHireByJob: tool({
+      description:
+        "Returns time-to-hire metrics per job: median days from application to hire and total hires. Useful for 'how long does hiring take?' or 'which roles have the fastest pipeline?'. Only includes jobs with at least one hire.",
+      inputSchema: z.object({}),
+      async execute() {
+        const rows = await getTimeToHireByJob(ctx);
+        return result(rows, {
+          kind: "table",
+          columns: ["jobTitle", "medianDays", "hiredCount"],
+        });
+      },
+    }),
+
+    jobList: tool({
+      description:
+        "Returns the list of jobs in this workspace. Useful for 'what jobs are open?' or 'show me all roles'. Pass a status to filter (e.g. 'open', 'closed', 'draft').",
+      inputSchema: z.object({ status: z.string().optional() }),
+      async execute({ status }) {
+        const rows = await getJobList(ctx, { status });
+        return result(rows, {
+          kind: "table",
+          columns: ["title", "status", "daysOpen"],
+        });
+      },
+    }),
+
+    candidateList: tool({
+      description:
+        "Returns candidates who applied for a specific job. Requires a jobId — use the jobList tool first to find job IDs. Returns candidate name, email, phone, pipeline stage, source, and days since applied. PII fields (name, email, phone) are gated by role — analysts receive these fields stripped.",
+      inputSchema: z.object({ jobId: z.string() }),
+      async execute({ jobId }) {
+        const rows = await getCandidatesForJob(ctx, jobId);
+        const safe = stripPII(rows, ctx.role);
+        const piiCols = ctx.role === "analyst" ? [] : [...PII_COLUMNS.candidates];
+        return result(safe, {
+          kind: "table",
+          columns: [...piiCols, "stage", "source", "daysSinceApplied"],
+        });
+      },
+    }),
   };
 }
 
