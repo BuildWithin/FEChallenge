@@ -15,7 +15,11 @@ const globalForDb = globalThis as unknown as {
   __pglite__?: PGlite;
 };
 
-const pglite = globalForDb.__pglite__ ?? new PGlite(env.PGLITE_DIR);
+// In test environments (Vitest / Evalite) use an in-memory database so
+// concurrent eval files don't race on file-backed initdb and cause WASM aborts.
+const pglite =
+  globalForDb.__pglite__ ??
+  new PGlite(process.env.VITEST ? undefined : env.PGLITE_DIR);
 if (process.env.NODE_ENV !== "production") {
   globalForDb.__pglite__ = pglite;
 }

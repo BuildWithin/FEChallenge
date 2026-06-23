@@ -170,6 +170,28 @@ Five tools added to `buildTools` in `src/agent/tools.ts`:
 
 ---
 
+## Phase 7 — Evals
+
+### What was built
+
+Three eval files covering the two non-negotiables (isolation, PII) and one stretch (answer quality):
+
+- `evals/isolation.eval.ts` — calls `getJobList`, `getApplicationsByJob`, `getCandidatesForJob`, `getCandidateSourceBreakdown` directly for each workspace; asserts every returned row ID / jobId carries the expected workspace prefix. Must fail if `scopeWhere` is removed from any query. Result: **100%**.
+- `evals/permissions.eval.ts` — calls `getCandidatesForJob` + `stripPII` directly; asserts analyst path has no `name`/`email`/`phone` keys and recruiter path retains `name`. No LLM involved. Must fail if `stripPII` is bypassed. Result: **100%**.
+- `evals/quality.eval.ts` — full copilot run via `streamCopilot`; two scorers: (1) deterministic `usedCorrectTool` via `toolCallAccuracy` flexible mode; (2) LLM-as-judge `answerCorrectness` (75% factual + 25% semantic similarity). Result: **~77-82%** (stochastic — LLM judge varies per run). Overall suite: **~92%**.
+
+### Key decisions
+
+- **Isolation and permissions evals are LLM-free:** calling query/permission functions directly means the assertions are O(1) latency, 100% deterministic, and can't pass trivially due to a mock model returning empty results. This is the right layer: the rules live in the query/permission code, not in the LLM.
+- **`usedCorrectTool` omits `input` from actual tool calls:** the OpenAI Responses API passes empty strings for optional params (`{ jobId: "" }`). Passing these to `toolCallAccuracy` produces `nameOnly` matches (0.5) instead of exact matches (1.0). Since we test name only — not argument values — omitting `input` from the extracted tool calls produces exact matches and honest scores.
+- **Quality eval weights: 75% factual / 25% semantic — kept intentionally.** The ~80% score is a structural ceiling, not a calibration failure. The judge penalizes reference claims missing from the copilot's output (false negatives). The copilot is designed to state one insight in 2-4 sentences, so most enumerable reference claims will be absent by construction. Raising the score would mean either making the copilot more verbose (contradicts SYSTEM_PROMPT) or reducing factual weight (makes the judge easier to game). The rigorous factual check is the point — the score tells you answer quality is "good", not "perfect", which is accurate.
+- **LLM judge requires `openai.chat()` + `strictJsonSchema: false` middleware:** `evalite/scorers` sends JSON schemas without `additionalProperties: false`. The default `openai()` call (Responses API) enforces strict schema and rejects these calls. Using `openai.chat("gpt-4o-mini")` (Chat Completions) with `defaultSettingsMiddleware({ settings: { providerOptions: { openai: { strictJsonSchema: false } } } })` routes through JSON object mode instead of strict JSON schema mode.
+- **`.env.local` loaded via `evalite.config.ts` `define` block:** evalite runs its own Vite instance and ignores `vitest.config.ts`. `OPENAI_API_KEY` and `AI_PROVIDER` are read at config load time with Node's `fs.readFileSync` and baked into the eval bundle via Vite's `define`. Process-level `process.env` mutations are set as a belt-and-suspenders fallback for non-transformed paths.
+- **PGlite in-memory for evals:** the WASM database can't share a file-backed data directory across concurrent workers. Setting `PGLITE_DIR = undefined` when `process.env.VITEST` is truthy creates an in-memory instance per process. Each eval file seeds its own fresh state.
+- **`isolation.eval.ts` counts applications, not candidates:** `getCandidateSourceBreakdown` groups by application (each candidate can have multiple), so the expected count is 24 (brightwave) and 19 (meridian), not 18 and 14 (candidate count). Using candidate count would cause a false pass on a leaked tenant (source totals would be inflated, not equaled).
+
+---
+
 ## Overview
 
 The copilot is a multi-tenant chat UI where hiring team members ask natural-language questions about their recruiting data and a real Claude model answers by calling typed tools that run scoped Drizzle queries against PGlite (dev) or Neon (prod). Results render as charts or tables.
@@ -178,9 +200,9 @@ The copilot is a multi-tenant chat UI where hiring team members ask natural-lang
 - Full tool catalog (6 tools), query layer, PII gate, generative UI, system prompt
 - Tenant isolation enforced by construction (`scopeWhere`), PII gate enforced at tool boundary
 - Two code-reviewer passes on Phase 6; all CRITICAL and HIGH findings resolved, APPROVED
+- Eval suite: isolation (100%), permissions (100%), answer quality (~80%), overall ~92%
 
 **What's pending:**
-- Evals (Phase 7): `isolation.eval.ts`, `permissions.eval.ts` — not written yet
 - Response caching stretch (Phase 8)
 - Deploy to Vercel + Neon (Phase 9)
 - This DECISIONS.md prose expansion + Loom (Phase 10)
@@ -249,13 +271,16 @@ Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" |
 
 ## Benchmarks
 
-_Phase 7 not yet written. This section will be filled in after `isolation.eval.ts` and `permissions.eval.ts` are complete._
+**Eval suite: ~92% overall** (`pnpm eval`, 4 files, 7 evals, ~15s)
 
-**Planned assertions:**
-- `isolation.eval.ts`: for workspace=Brightwave, assert no returned row has `workspaceId === MeridianId`. Must fail if `scopeWhere` is removed from any query.
-- `permissions.eval.ts`: for role=analyst, assert no `candidateList` result has `name`, `email`, or `phone`. Must fail if `stripPII` is bypassed.
+| Eval | Score | Type |
+|---|---|---|
+| `isolation.eval.ts` | 100% | Deterministic |
+| `permissions.eval.ts` | 100% | Deterministic |
+| `copilot.eval.ts` (reference) | 100% | Semi-deterministic |
+| `quality.eval.ts` | ~77-82% | Stochastic (LLM judge) |
 
-**Why these assertions are non-trivial:** `result.length > 0` would pass even with a tenant leak (more rows, not zero). The correct assertion is `result.every(r => r.workspaceId === expectedId)` for isolation, and `result.every(r => !('name' in r))` for permissions.
+**Why these assertions are non-trivial:** `result.length > 0` would pass even with a tenant leak (more rows, not zero). The isolation eval asserts every row ID starts with the expected workspace prefix; a leaked row from Meridian would carry "mer-" in a Brightwave result. The permissions eval asserts `!("name" in row)` for every analyst-role row — not just that the result is non-empty.
 
 ---
 
