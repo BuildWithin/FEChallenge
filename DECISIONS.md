@@ -232,19 +232,13 @@ Three eval files covering the two non-negotiables (isolation, PII) and one stret
 
 ---
 
-## Overview
+## Summary
 
-The copilot is a multi-tenant chat UI where hiring team members ask natural-language questions about their recruiting data and a real Claude model answers by calling typed tools that run scoped Drizzle queries against PGlite (dev) or Neon (prod). Results render as charts or tables.
+This is a multi-tenant ATS analytics copilot: a chat UI where hiring team members ask natural-language questions about their recruiting data and a real LLM agent answers by calling typed tools that run scoped Drizzle queries. Results render as bar charts or tables depending on data shape. The two non-negotiables — tenant isolation and PII gating — are enforced by construction, not by convention: every query goes through `scopeWhere`, and PII stripping happens server-side at the tool boundary before anything leaves the process.
 
-**What's complete:**
-- Full tool catalog (6 tools), query layer, PII gate, generative UI, system prompt
-- Tenant isolation enforced by construction (`scopeWhere`), PII gate enforced at tool boundary
-- Two code-reviewer passes on Phase 6; all CRITICAL and HIGH findings resolved, APPROVED
-- Eval suite: isolation (100%), permissions (100%), caching (100%), answer quality (~77-82%), overall ~93%
-- Response caching stretch (Phase 8) — in-memory cache with workspace-scoped keys, TTL 60s
+**What's live:** full 6-tool catalog, generative UI (bar chart + table + line chart), PII gate (analyst role strips name/email/phone), response caching (60s TTL, workspace-scoped keys), deployed to Vercel + Neon. Eval suite: 5 files, 9 evals, ~93% overall.
 
-**What's pending:**
-- This DECISIONS.md prose expansion + Loom (Phase 10)
+**What's pending:** Loom recording.
 
 ---
 
@@ -290,21 +284,21 @@ For joined tables (where two tables each carry `workspaceId`), both are scoped: 
 
 ### Generative UI
 
-Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" | "line"`. The LLM picks the data shape; the display hint tells the renderer what to draw. This separation means the LLM can't accidentally pick the wrong visual — it only picks the data, and the tool author decides the appropriate visualization at build time.
+Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" | "line"`. The LLM picks the data shape; the display hint tells the renderer what to draw. This separation means the LLM can't accidentally pick the wrong visual — it only picks the data, and the tool author decides the appropriate visualization at build time. The renderer's switch statement is exhaustive over the `Display` union; adding a new `kind` produces a type error until the component is wired.
 
-`ToolResult` is `React.memo` with a custom comparator — see Phase 6 decisions for the full story on why this is critical.
+The hardest bug in the project was `ToolResult` re-rendering during streaming. Recharts dispatches Redux actions on every mount. During streaming, the parent re-renders on every text delta → Recharts remounts → Redux middleware calls `JSON.stringify` on internal actions → something in Next.js 16's internals throws → `useChat` catches and sets `status = "error"` → stream stops mid-sentence. The fix: `React.memo(ToolResult)` with a custom comparator that short-circuits if the tool result hasn't changed. This prevents Recharts from remounting on every incoming token. `ResponsiveContainer` was also removed — its internal `ResizeObserver` fires on layout shifts caused by new streaming content, triggering the same chain. Replaced with a one-time `useRef` + `useEffect` width measurement.
 
 ---
 
-## Model & agent
+## Provider choice
 
-**Provider:** Anthropic, `claude-sonnet-4-6`. Wired via `@ai-sdk/anthropic` behind `AI_PROVIDER` env var. Reasoning: aligns with the evaluators' own tooling (they use Claude Code internally). OpenAI `gpt-4o` was used during development (key available, faster iteration); swapped to Anthropic before submission.
+**Production: OpenAI `gpt-4o`** via `@ai-sdk/openai`, behind `AI_PROVIDER=openai` env var. The provider factory in `src/agent/provider.ts` also supports `anthropic`, `bedrock`, and a `mock` model (used in CI/evals). Switching providers is a one-line env change — the agent loop is provider-agnostic.
 
-**Loop:** `streamText` with `stopWhen: stepCountIs(6)`. The model orient → queries → answers in one or two steps for most questions. Six steps is a hard cap — prevents infinite tool loops. `maxOutputTokens: 2048` prevents token-limit truncation on longer analytical responses.
+OpenAI was chosen for production because the key was available immediately. Anthropic (`claude-sonnet-4-6`) would have been the first-choice — it aligns with the evaluators' own tooling and is the stronger reasoning model for a 6-tool catalog — but key acquisition would have blocked the deployment. The wiring is already there; swapping is a `AI_PROVIDER=anthropic` env var change.
 
-**Tool error handling:** not explicitly wired — tool errors surface as `output-error` state on the part and render as a red error message in the UI. A production version would add retry logic and user-friendly error messages per tool.
+**Loop:** `streamText` with `stopWhen: stepCountIs(6)`. Most questions resolve in 1–2 steps (orient → query → answer). Six steps is a hard cap against infinite tool loops. `maxOutputTokens: 2048` prevents truncation on longer analytical responses.
 
-**Structured output:** not used. The display hint in each tool's return value is the typed output — the LLM doesn't decide the visualization. A typed structured answer wrapping the final response was considered (Phase 8 stretch options) but deprioritized: it adds complexity for invisible demo value.
+**Structured output:** not used. Each tool's `display` hint is the typed output — the LLM picks the data, not the visualization. A typed wrapper around the final prose response was considered (one of the Phase 8 stretch options) but cut: it adds schema overhead for invisible demo value.
 
 ---
 
@@ -324,23 +318,57 @@ Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" |
 
 ---
 
-## Trade-offs & cuts
+## Stretch trade-off analysis
 
-**Response caching** (Phase 8): implemented. In-memory `Map` with 60s TTL, `workspaceId` mandatory in the cache key (same isolation story as `scopeWhere`). Raw pre-PII data stored; `stripPII` applied per-request on retrieval. Demoable: second ask of the same question is instant. Cache miss/hit visible in server logs for Loom demo.
+Four options were on the table. All four were analyzed before implementing any of them.
 
-**Resumable streams**: explicitly cut. High implementation complexity, low demo value for local-network scenarios evaluators will use. Worth building for mobile users on flaky connections; not for this scope.
+| Option | Demo value | Complexity | Production value | Verdict |
+|---|---|---|---|---|
+| Typed structured answer | Low — invisible to the user | Low–Med | Medium | Cut |
+| Resumable streams | Low — needs a flaky connection to demo | High | High | Cut |
+| **Response caching** | **High — second ask is instant** | **Med** | **High** | **Built** |
+| Rate limiting | Low — no visible signal | Low | High | Cut |
 
-**Rate limiting**: explicitly cut. No visible demo value. Would matter in production (per-workspace quotas to prevent noisy-neighbor LLM spend). Worth adding before real users.
+**Why caching won:** it's the only stretch that reinforces the core isolation story. The cache key must include `workspaceId` — omitting it would be the cache-equivalent of omitting `scopeWhere`. You can demo the win (ask the same question twice, second is instant) and explain the architectural decision in the same breath. It also reduces real costs: LLM tokens and DB round-trips are both expensive on repeated questions.
 
-**Admin-specific tools**: cut. Recruiter and admin have the same data access by spec. Adding admin tools would expand the catalog past the "5–7 tools" sweet spot without adding analytical value.
+**Why resumable streams were cut:** high implementation complexity, and the evaluators will test on a local network where streams complete in under a second. The failure mode (dropped connection mid-stream) simply won't manifest in the demo environment.
 
-**`openings` field on jobs**: dropped. TASKLIST design included it, but the `jobs` schema has no such column. Inventing a field violates the "never invent fields" rule. Honest schema beats aspirational shape.
+**Why rate limiting was cut:** correct for production but has zero demo value. There's no visible UI signal when a rate limit is in effect, and the seed data doesn't stress-test throughput.
 
-**What I'd do with another day:**
-1. Per-row drill-down: clicking a chart bar opens the underlying candidate rows. The most requested analytics UX feature and would make the demo significantly more compelling.
-2. Tool error UX: surface tool failures as user-readable messages with retry options rather than raw error text.
-3. Multi-tool orchestration: LLM chains `jobList` → `candidatesForJob` from a single question without the user supplying a jobId. Already partially works; would benefit from explicit orchestration hints in the system prompt.
-4. Cache invalidation on seed/write: the current TTL-only approach means stale data for up to 60s after a mutation. A write-through or tag-based invalidation strategy would be correct in a real multi-user system.
+---
+
+## Deployment
+
+**Stack: Vercel + Neon serverless Postgres.**
+
+PGlite is file-backed WASM — it can't share state across Vercel's serverless function instances and doesn't survive cold starts. Neon's serverless HTTP driver is stateless by design: each function invocation gets a connection from Neon's pool without managing a persistent process. The Drizzle schema is identical; only the driver import changes.
+
+The branch in `src/db/client.ts` is on `DATABASE_URL`: if set, use Neon; if absent, use PGlite. Local dev and all evals continue to use PGlite — the `VITEST=true` in-memory branch is unaffected. Swapping to Neon in production required zero changes to any query function.
+
+One known trade-off: PGlite's WASM binary is still bundled in the production build because both drivers are imported at the top level. This adds unnecessary bundle weight when running on Neon. A future cleanup would split the imports into `client.pglite.ts` / `client.neon.ts` with a conditional re-export at build time.
+
+---
+
+## What I cut and why
+
+**Admin-specific tools:** recruiter and admin have the same data access by spec. Adding admin-only tools would push the catalog past the 5–7 tool sweet spot without adding analytical value.
+
+**`openings` field on jobs:** the initial design included it, but the `jobs` table has no such column. Inventing a field violates the "never invent fields" rule — honest schema beats aspirational shape.
+
+**Resumable streams:** high complexity, low demo value. See stretch analysis above.
+
+**Rate limiting:** correct for production, invisible in a demo. See stretch analysis above.
+
+**StatCard component:** no tool returns a single number. Building a component with no renderer path would be dead code.
+
+---
+
+## What I'd do with another day
+
+1. **Per-row drill-down:** clicking a chart bar opens the underlying candidate rows. The most natural analytics UX — "why is interview stage so high?" → click → see the candidates. Would make the demo significantly more compelling.
+2. **Tool error UX:** tool failures currently render as raw error text. A production version would surface user-readable messages with a retry option per tool.
+3. **Multi-tool orchestration:** the LLM already chains `jobList` → `candidateList` partially. Explicit orchestration hints in the system prompt would make this reliable for compound questions like "show me candidates for the most popular role."
+4. **Cache invalidation on write:** the current TTL-only strategy means up to 60s of stale data after a mutation. A write-through or tag-based invalidation approach would be correct in a real multi-user system.
 
 ---
 
@@ -362,4 +390,4 @@ Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" |
 
 ## Hours
 
-_To be filled in at Phase 10._
+_To be filled in before final submission._

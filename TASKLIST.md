@@ -476,54 +476,27 @@ feat(agent): response caching with workspace-scoped keys
 
 ---
 
-## Phase 9 — Deploy live
+## Phase 9 — Deploy live ✓ COMPLETE
 
-**Goal:** A URL the reviewers can click. PGlite won't survive serverless — we swap to Neon.
+### 9.2 — Swap the DB driver ✓
+- [x] `@neondatabase/serverless` installed
+- [x] `src/db/client.ts` — `buildDb()` branches on `DATABASE_URL`: Neon (prod) or PGlite (dev/test)
+- [x] `src/env.ts` — `DATABASE_URL?: string` added
+- [x] Neon seeded: `DATABASE_URL=... pnpm db:seed` (Brightwave + Meridian)
 
-### 9.1 — Choose the stack
+### 9.3 — Configure Vercel ✓
+- [x] Repo connected to Vercel, production branch: `ats-analytics-copilot`
+- [x] Env vars set: `AI_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-4o`, `DATABASE_URL`
+- [x] Deployed — tested prod: both workspaces, roles, tools working
 
-**Recommended: Vercel + Neon Postgres**
-
-- **Vercel** — natural for Next.js 16 App Router, free tier covers this
-- **Neon** — serverless Postgres with a generous free tier, works with Drizzle, has connection pooling that suits Vercel's serverless functions
-
-**Alternative:** Railway (persistent disk, can keep PGlite) — simpler conceptually but PGlite isn't a real DB target. The schema is identical; the connection string changes.
-
-### 9.2 — Swap the DB driver
-
-**Delegate to:** `query-architect` subagent (it owns DB connection too)
-
-- [ ] Install `@neondatabase/serverless` and `drizzle-orm/neon-serverless`
-- [ ] In the DB client file (currently uses PGlite), branch on `NODE_ENV`:
-  - Dev: PGlite (file-backed at `./.pglite`)
-  - Prod: Neon serverless
-- [ ] Run the seed against Neon once locally:
-  ```bash
-  DATABASE_URL=postgresql://... pnpm db:seed
-  ```
-- [ ] Verify with `psql` or Neon dashboard that both workspaces exist
-
-### 9.3 — Configure Vercel
-
-- [ ] Connect the repo to Vercel
-- [ ] Add env vars:
-  - `AI_PROVIDER=anthropic`
-  - `ANTHROPIC_API_KEY=...`
-  - `DATABASE_URL=...` (Neon connection string)
-- [ ] First deploy
-- [ ] Visit the URL, test both workspaces, both roles, several tools
-
-### 9.4 — Document in DECISIONS.md
-
-- Where the DB lives (Neon serverless Postgres)
-- Why (PGlite file-backed doesn't survive serverless cold starts; Neon matches Vercel's deployment model; same Drizzle schema)
-- What changed (just the connection layer; queries are identical)
-- Trade-offs (cold starts, connection pooling, cost at scale)
+### 9.4 — Document in DECISIONS.md ✓
 
 ### 9.5 — Commit
 
 ```
-git commit -m "feat(deploy): swap PGlite for Neon in production, ship to Vercel"
+feat(db): add Neon serverless driver, deploy to Vercel
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ### 9.6 — Add the live URL to the PR description
