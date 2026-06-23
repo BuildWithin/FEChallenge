@@ -212,6 +212,26 @@ Three eval files covering the two non-negotiables (isolation, PII) and one stret
 
 ---
 
+## Phase 9 — Deployment
+
+### What was built
+
+- `@neondatabase/serverless` installed; `src/db/client.ts` branched on `DATABASE_URL`
+- `src/env.ts` — `DATABASE_URL?: string` added
+- `buildDb()` function: Neon HTTP pooling when `DATABASE_URL` set, PGlite otherwise (PGlite path unchanged, including `globalThis` HMR guard and `VITEST` in-memory branch)
+- Neon project seeded (Brightwave + Meridian) via `DATABASE_URL=... pnpm db:seed`
+- Deployed to Vercel — production branch: `ats-analytics-copilot`
+
+### Key decisions
+
+- **Neon over Railway:** Neon's serverless HTTP driver matches Vercel's stateless execution model — no persistent connection needed per function invocation. Railway would let PGlite survive, but PGlite file-backed is fundamentally incompatible with serverless cold starts.
+- **Same Drizzle schema, zero query changes:** the Neon and PGlite drivers both expose the same `PgDatabase` query builder interface. Every query function in `analytics.ts` compiles and runs unchanged.
+- **PGlite still imported in production bundle:** both imports are at the top of `client.ts`. The WASM binary is included in the production bundle even when the Neon path is taken. For a take-home this is acceptable; splitting into `client.pglite.ts` / `client.neon.ts` with a conditional re-export would eliminate the dead weight in production.
+- **`DATABASE_URL` absent in local dev:** `.env.local` does not set it, so local `pnpm dev` continues to use file-backed PGlite. Evals use `VITEST=true` in-memory PGlite — unaffected.
+- **OpenAI `gpt-4o` in production:** key already available, avoids blocking on Anthropic key provisioning for deployment verification. Can swap to Anthropic before final PR merge if desired.
+
+---
+
 ## Overview
 
 The copilot is a multi-tenant chat UI where hiring team members ask natural-language questions about their recruiting data and a real Claude model answers by calling typed tools that run scoped Drizzle queries against PGlite (dev) or Neon (prod). Results render as charts or tables.
@@ -224,7 +244,6 @@ The copilot is a multi-tenant chat UI where hiring team members ask natural-lang
 - Response caching stretch (Phase 8) — in-memory cache with workspace-scoped keys, TTL 60s
 
 **What's pending:**
-- Deploy to Vercel + Neon (Phase 9)
 - This DECISIONS.md prose expansion + Loom (Phase 10)
 
 ---
