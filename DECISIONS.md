@@ -192,6 +192,26 @@ Three eval files covering the two non-negotiables (isolation, PII) and one stret
 
 ---
 
+## Phase 8 — Response caching
+
+### What was built
+
+- Module-level `toolCache = new Map<string, { data: unknown; expiresAt: number }>()` in `src/agent/tools.ts`
+- `getCached(key)` / `setCached(key, data)` helpers with 60s TTL
+- Cache applied to: `applicationsByJob`, `candidateSourceBreakdown`, `timeToHireByJob`, `candidateList`
+- Cache NOT applied to: `applicationCountByStage` (reference tool — immutable by rule), `jobList` (job listings change frequently)
+- `evals/caching.eval.ts` — two scorers: `resultsAreIdentical` (deep row comparison, non-empty guard) and `secondCallIsFaster` (relative timing, 0.5ms floor for sub-ms CI flakiness prevention). Result: **100%**.
+
+### Key decisions
+
+- **`workspaceId` mandatory in cache key:** omitting it would be the cache-equivalent of omitting `scopeWhere` — a tenant isolation bypass where Workspace A's cached data is served to Workspace B. The key format `${workspaceId}::${toolName}::${JSON.stringify(params)}` makes the isolation boundary visible by construction.
+- **Raw (pre-PII) data stored; `stripPII` applied per-request after retrieval:** role excluded from cache key. Two callers with different roles (analyst vs recruiter) for the same workspace+params hit the same cache entry; the PII gate runs on the way out based on the caller's role. Storing stripped data by role would double the cache entries and complicate invalidation.
+- **`console.log("[cache HIT]"` / `"[cache MISS]")` kept intentionally:** these are Loom demo signals, not debugging leftovers. Flagged CRITICAL by code-reviewer; acknowledged and deferred to Phase 10 (strip before PR merge, after Loom is recorded).
+- **`jobList` excluded:** job open/close status changes in real time. Caching it would serve stale pipeline state. All aggregate analytics tools are cached — they reflect historical data that doesn't change within a 60s window.
+- **`secondCallIsFaster` scorer uses 0.5ms floor:** on a warm JIT with a tiny PGlite dataset, the first DB call can complete sub-millisecond. Scheduler jitter at that resolution can reverse the elapsed ordering spuriously, causing a working cache to fail the eval. Score 0.5 (inconclusive) when `elapsed1Ms < 0.5` instead of 0 (false fail). Only the relative ordering matters above the floor.
+
+---
+
 ## Overview
 
 The copilot is a multi-tenant chat UI where hiring team members ask natural-language questions about their recruiting data and a real Claude model answers by calling typed tools that run scoped Drizzle queries against PGlite (dev) or Neon (prod). Results render as charts or tables.
@@ -200,10 +220,10 @@ The copilot is a multi-tenant chat UI where hiring team members ask natural-lang
 - Full tool catalog (6 tools), query layer, PII gate, generative UI, system prompt
 - Tenant isolation enforced by construction (`scopeWhere`), PII gate enforced at tool boundary
 - Two code-reviewer passes on Phase 6; all CRITICAL and HIGH findings resolved, APPROVED
-- Eval suite: isolation (100%), permissions (100%), answer quality (~80%), overall ~92%
+- Eval suite: isolation (100%), permissions (100%), caching (100%), answer quality (~77-82%), overall ~93%
+- Response caching stretch (Phase 8) — in-memory cache with workspace-scoped keys, TTL 60s
 
 **What's pending:**
-- Response caching stretch (Phase 8)
 - Deploy to Vercel + Neon (Phase 9)
 - This DECISIONS.md prose expansion + Loom (Phase 10)
 
@@ -271,13 +291,14 @@ Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" |
 
 ## Benchmarks
 
-**Eval suite: ~92% overall** (`pnpm eval`, 4 files, 7 evals, ~15s)
+**Eval suite: ~93% overall** (`pnpm eval`, 5 files, 9 evals, ~20s)
 
 | Eval | Score | Type |
 |---|---|---|
 | `isolation.eval.ts` | 100% | Deterministic |
 | `permissions.eval.ts` | 100% | Deterministic |
 | `copilot.eval.ts` (reference) | 100% | Semi-deterministic |
+| `caching.eval.ts` | 100% | Deterministic |
 | `quality.eval.ts` | ~77-82% | Stochastic (LLM judge) |
 
 **Why these assertions are non-trivial:** `result.length > 0` would pass even with a tenant leak (more rows, not zero). The isolation eval asserts every row ID starts with the expected workspace prefix; a leaked row from Meridian would carry "mer-" in a Brightwave result. The permissions eval asserts `!("name" in row)` for every analyst-role row — not just that the result is non-empty.
@@ -286,7 +307,7 @@ Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" |
 
 ## Trade-offs & cuts
 
-**Response caching** (Phase 8): planned but not implemented yet. Cache key would include `workspaceId` to extend the isolation story — forgetting it would be the cache-equivalent of forgetting `scopeWhere`. Demoable (second ask is instant). Implementation: in-memory `Map` with TTL, PII filter applied post-retrieval so cache stores unfiltered data.
+**Response caching** (Phase 8): implemented. In-memory `Map` with 60s TTL, `workspaceId` mandatory in the cache key (same isolation story as `scopeWhere`). Raw pre-PII data stored; `stripPII` applied per-request on retrieval. Demoable: second ask of the same question is instant. Cache miss/hit visible in server logs for Loom demo.
 
 **Resumable streams**: explicitly cut. High implementation complexity, low demo value for local-network scenarios evaluators will use. Worth building for mobile users on flaky connections; not for this scope.
 
@@ -298,9 +319,9 @@ Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" |
 
 **What I'd do with another day:**
 1. Per-row drill-down: clicking a chart bar opens the underlying candidate rows. The most requested analytics UX feature and would make the demo significantly more compelling.
-2. Eval coverage: write the isolation and permissions evals so regressions in `scopeWhere` or `stripPII` are caught automatically.
-3. Response caching: implement the in-memory cache with workspace-scoped keys. The isolation story gets stronger when you can show that the cache also can't leak across tenants.
-4. Tool error UX: surface tool failures as user-readable messages with retry options rather than raw error text.
+2. Tool error UX: surface tool failures as user-readable messages with retry options rather than raw error text.
+3. Multi-tool orchestration: LLM chains `jobList` → `candidatesForJob` from a single question without the user supplying a jobId. Already partially works; would benefit from explicit orchestration hints in the system prompt.
+4. Cache invalidation on seed/write: the current TTL-only approach means stale data for up to 60s after a mutation. A write-through or tag-based invalidation strategy would be correct in a real multi-user system.
 
 ---
 
