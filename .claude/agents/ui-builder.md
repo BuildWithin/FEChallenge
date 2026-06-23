@@ -1,7 +1,7 @@
 ---
 name: ui-builder
 description: Use this subagent for building chart/table components in src/app/components/ and wiring the artifact renderer in src/app/page.tsx. Owns the generative UI surface.
-tools: Read, Edit, Bash, Glob, Grep
+tools: Read, Edit, Bash, Glob, Grep, Search
 ---
 
 # UI Builder
@@ -39,7 +39,7 @@ You are a specialized subagent for the generative UI layer. You work in:
 
 ```tsx
 // src/app/components/BarChart.tsx
-import { Bar, BarChart as RechartsBarChart, /* ... */ } from 'recharts';
+import { Bar, BarChart as RechartsBarChart /* ... */ } from "recharts";
 
 type BarChartProps = {
   data: { label: string; value: number }[];
@@ -60,9 +60,9 @@ export function BarChart({ data, title }: BarChartProps) {
 ```tsx
 function renderArtifact(artifact: Artifact) {
   switch (artifact.displayHint.type) {
-    case 'bar_chart':
+    case "bar_chart":
       return <BarChart data={mapToBarData(artifact.data)} />;
-    case 'table':
+    case "table":
       return <DataTable data={artifact.data as Record<string, unknown>[]} />;
     default:
       return (

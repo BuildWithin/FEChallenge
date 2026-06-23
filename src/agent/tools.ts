@@ -9,13 +9,13 @@
  * Catalog:
  *
  *  applicationCountByStage   "How does my pipeline look by stage?"
- *                            params: { jobId? }   display: bar_chart
+ *                            params: { jobId? }   display: bar
  *
  *  applicationsByJob         "Which roles have the most applicants?"
  *                            params: {}           display: table
  *
  *  candidateSourceBreakdown  "Where are candidates coming from?"
- *                            params: { jobId? }   display: bar_chart
+ *                            params: { jobId? }   display: bar
  *
  *  timeToHireByJob           "How long does hiring take per role?"
  *                            params: {}           display: table
@@ -126,7 +126,7 @@ export function buildTools(ctx: AnalyticsCtx) {
 
     candidateList: tool({
       description:
-        "Returns candidates who applied for a specific job. Requires a jobId — use the jobList tool first to find job IDs. Returns candidate name, email, phone, pipeline stage, source, and days since applied. PII fields (name, email, phone) are gated by role — analysts receive these fields stripped.",
+        "Returns candidates who applied for a specific job. Requires a jobId — use the jobList tool first to find job IDs. PII fields (name, email, phone) are only present for recruiter and admin roles — analysts receive a stripped view with stage, source, and days since applied only.",
       inputSchema: z.object({ jobId: z.string() }),
       async execute({ jobId }) {
         const rows = await getCandidatesForJob(ctx, jobId);

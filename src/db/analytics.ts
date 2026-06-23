@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { db } from "./client";
 import type { Role } from "./permissions";
@@ -63,8 +63,11 @@ export async function getApplicationsByJob(
 ): Promise<
   Array<{ jobId: string; jobTitle: string; count: number; avgDaysInPipeline: number }>
 > {
+  // scopeWhere returns a SQL fragment; passing it in extra is valid — Drizzle
+  // accepts SQL fragments in AND conditions. The INNER JOIN already constrains
+  // jobs by applications.jobId, but scoping both sides is defensive depth.
   const extra = [
-    eq(jobs.workspaceId, ctx.workspaceId),
+    scopeWhere(jobs, ctx),
     ...(opts.jobId ? [eq(applications.jobId, opts.jobId)] : []),
   ];
 
@@ -101,8 +104,9 @@ export async function getCandidateSourceBreakdown(
   ctx: AnalyticsCtx,
   opts: { jobId?: string } = {},
 ): Promise<Array<{ source: string; count: number; percentage: number }>> {
+  // Same pattern as getApplicationsByJob: scope both the primary and joined table.
   const extra = [
-    eq(candidates.workspaceId, ctx.workspaceId),
+    scopeWhere(candidates, ctx),
     ...(opts.jobId ? [eq(applications.jobId, opts.jobId)] : []),
   ];
 
@@ -131,29 +135,45 @@ export async function getTimeToHireByJob(
 ): Promise<Array<{ jobTitle: string; medianDays: number; hiredCount: number }>> {
   const hiredFilter = eq(applications.stage, "hired");
 
+  // percentile_cont is not available in PGlite (WASM Postgres). Fetch all hired
+  // rows and compute the median per job in TypeScript instead.
   const rows = await db
     .select({
       jobTitle: jobs.title,
-      hiredCount: count(),
-      medianDays: sql<number>`
-        percentile_cont(0.5) WITHIN GROUP (
-          ORDER BY
-            extract(epoch from (${applications.updatedAt} - ${applications.appliedAt}))
-            / 86400.0
+      daysToHire: sql<number>`
+        floor(
+          extract(epoch from (${applications.updatedAt} - ${applications.appliedAt}))
+          / 86400.0
         )
       `,
     })
     .from(applications)
     .innerJoin(jobs, eq(applications.jobId, jobs.id))
-    .where(scopeWhere(applications, ctx, [hiredFilter]))
-    .groupBy(jobs.title)
-    .orderBy(desc(count()));
+    .where(scopeWhere(applications, ctx, [hiredFilter, scopeWhere(jobs, ctx)]))
+    .orderBy(jobs.title);
 
-  return rows.map((r) => ({
-    jobTitle: r.jobTitle,
-    hiredCount: r.hiredCount,
-    medianDays: Number(r.medianDays),
-  }));
+  function median(vals: number[]): number {
+    const sorted = [...vals].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  }
+
+  const byJob = new Map<string, number[]>();
+  for (const r of rows) {
+    const days = byJob.get(r.jobTitle) ?? [];
+    days.push(Number(r.daysToHire));
+    byJob.set(r.jobTitle, days);
+  }
+
+  return [...byJob.entries()]
+    .map(([jobTitle, days]) => ({
+      jobTitle,
+      medianDays: Math.round(median(days) * 10) / 10,
+      hiredCount: days.length,
+    }))
+    .sort((a, b) => b.hiredCount - a.hiredCount);
 }
 
 export async function getJobList(
@@ -175,7 +195,7 @@ export async function getJobList(
     })
     .from(jobs)
     .where(scopeWhere(jobs, ctx, extra))
-    .orderBy(desc(sql`floor(extract(epoch from (now() - ${jobs.createdAt})) / 86400)`));
+    .orderBy(asc(jobs.createdAt)); // oldest job = most days open
 
   return rows.map((r) => ({
     id: r.id,
@@ -215,7 +235,9 @@ export async function getCandidatesForJob(
     })
     .from(applications)
     .innerJoin(candidates, eq(applications.candidateId, candidates.id))
-    .where(scopeWhere(applications, ctx, [eq(applications.jobId, jobId), eq(candidates.workspaceId, ctx.workspaceId)]))
+    // scopeWhere(candidates, ctx) in extra is a SQL fragment accepted by Drizzle's
+    // AND — scopes both sides of the join for defensive depth.
+    .where(scopeWhere(applications, ctx, [eq(applications.jobId, jobId), scopeWhere(candidates, ctx)]))
     .orderBy(desc(applications.appliedAt));
 
   return rows.map((r) => ({

@@ -145,43 +145,156 @@ Five tools added to `buildTools` in `src/agent/tools.ts`:
 
 ---
 
+## Phase 6 — Generative UI
+
+### What was built
+
+- `src/app/components/BarChart.tsx` — Recharts horizontal bar chart with `STAGE_ORDER` sort when `xKey === "stage"`, explicit pixel dimensions (no `ResponsiveContainer`)
+- `src/app/components/DataTable.tsx` — Tailwind table, `formatLabel` on headers, `formatValue` with `ENUM_PATTERN` on cells (formats `careers_site` → "Careers Site"; leaves emails/names untouched)
+- `src/app/components/LineChart.tsx` — Recharts line chart, same width-measurement pattern as `BarChart`, wired for `display.kind === "line"`
+- `src/app/components/format.ts` — shared util: `LABEL_OVERRIDES`, `formatLabel`, `formatValue`, `ENUM_PATTERN`. Single source of truth for all display formatting across chart and table components.
+- `src/app/page.tsx` — full renderer wired: `ToolCall` component, `ToolResult` memoized renderer, `isToolPart()` runtime guard, streaming deferral per-message, auto-scroll; `"bar"` / `"line"` / `"table"` switch covering full `Display` union
+- `src/agent/provider.ts` — full `SYSTEM_PROMPT` rewrite with named sections
+- `src/db/analytics.ts` — `getTimeToHireByJob` rewritten to avoid `percentile_cont` (PGlite does not support ordered-set aggregates); median computed in TypeScript post-fetch. `getJobList` `orderBy` de-duplicated to `asc(jobs.createdAt)`.
+
+### Key decisions
+
+- **`React.memo(ToolResult)` with custom comparator is the fix for streaming cut-off:** `RechartsBarChart` dispatches Redux actions on every render. During streaming, parent re-renders on every text delta → Recharts re-renders → Redux middleware calls `JSON.stringify` on actions → something in Next.js 16's internals throws → `useChat` catches → `status = "error"` → stream stops mid-sentence. `memo` prevents re-renders of completed tool results during subsequent streaming. This was the hardest bug in the session; three other approaches (streaming deferral, `useLayoutEffect`/`useState`, removing `ResponsiveContainer`) each partially addressed symptoms. The `memo` fix cuts the root cause.
+- **`ResponsiveContainer` dropped permanently:** its internal `ResizeObserver` stays subscribed after mount. Layout shifts during streaming (new content pushing the page down) trigger the observer → Redux dispatch → same throw chain. Replaced with one-time `useRef` + `useEffect` width measurement + explicit pixel `width`/`height` on `RechartsBarChart`. One-shot `ResizeObserver` fallback added for containers hidden at mount.
+- **`streaming={isLastMessage && busy}` scopes deferral to current message only:** previous messages' charts always show. Avoids remount cycle that was causing scroll jumps and DOM reflow.
+- **SYSTEM_PROMPT restructured:** LLM was repeating table rows as numbered lists and re-calling `jobList` when job IDs were already in context. Added explicit rules: "never list table rows — the chart is already rendered", "read jobId from conversation history before calling jobList again". Added prompt-injection resistance section.
+- **`isToolPart()` runtime guard replaces `as` cast:** `message.parts` is typed but the property bag isn't fully narrowed. Guard checks `typeof part === "object"` and `type` is a string before any property access.
+- **Nested `scopeWhere(table, ctx)` in extra arrays:** three query functions joined to a secondary table (`jobs`, `candidates`) and needed to scope both sides. Pattern: pass `scopeWhere(secondaryTable, ctx)` as a SQL fragment in the `extra` array of the outer `scopeWhere`. Drizzle accepts SQL fragments in AND conditions; the INNER JOIN constrains by FK, the double-scope is defensive depth. Documented inline.
+- **`percentile_cont` removed from `getTimeToHireByJob`:** PGlite (WASM Postgres) does not support ordered-set aggregates. Rewritten to fetch all hired rows per workspace and compute median in TypeScript. Trade-off: loads full hired-application set into memory — acceptable for dev/eval scale, would need streaming or pagination before high-volume prod use.
+- **Shared `format.ts` util:** `BarChart` and `DataTable` originally had divergent `LABEL_OVERRIDES` — e.g. `jobTitle` override was missing from `BarChart`. Consolidated into one module so adding a new override propagates to all components automatically.
+
+---
+
 ## Overview
 
-What you built and the state it's in. If something is half-done on purpose, say so —
-that's a good answer, not a gap.
+The copilot is a multi-tenant chat UI where hiring team members ask natural-language questions about their recruiting data and a real Claude model answers by calling typed tools that run scoped Drizzle queries against PGlite (dev) or Neon (prod). Results render as charts or tables.
+
+**What's complete:**
+- Full tool catalog (6 tools), query layer, PII gate, generative UI, system prompt
+- Tenant isolation enforced by construction (`scopeWhere`), PII gate enforced at tool boundary
+- Two code-reviewer passes on Phase 6; all CRITICAL and HIGH findings resolved, APPROVED
+
+**What's pending:**
+- Evals (Phase 7): `isolation.eval.ts`, `permissions.eval.ts` — not written yet
+- Response caching stretch (Phase 8)
+- Deploy to Vercel + Neon (Phase 9)
+- This DECISIONS.md prose expansion + Loom (Phase 10)
+
+---
 
 ## Architecture & key decisions
 
-- **Tool catalog** — which tools you added, their granularity, and how you shaped
-  their inputs for a model to drive.
-- **Query layer** — how it's structured and composed.
-- **Tenant scoping** — how you made it impossible to forget as the layer grows.
-- **Permissions** — how you enforce the PII rule by role.
-- **Generative UI** — how tool results become streaming components.
+### Tool catalog
+
+Six tools, not more. Too many confuses LLM tool selection; too few makes each tool too broad to drive precisely. Each answers one question:
+
+| Tool | Question | Display |
+|---|---|---|
+| `applicationCountByStage` | Pipeline shape | bar chart |
+| `applicationsByJob` | Volume per role | table |
+| `candidateSourceBreakdown` | Where candidates come from | bar chart |
+| `timeToHireByJob` | Speed per role | table |
+| `jobList` | What's open | table |
+| `candidateList` | Candidates for a job (**PII-gated**) | table |
+
+Exactly one PII tool limits the surface area where the role gate applies. `jobId?` as the common optional param lets the LLM compose: call `jobList` to discover a job, then pass `jobId` to `candidateList`.
+
+Tool descriptions are written as questions the recruiter asks, not as API specs. This makes LLM tool selection reliable — the model matches the user's question to the description, not to implementation details.
+
+### Query layer
+
+All query functions live in `src/db/analytics.ts`. Each wraps Drizzle ORM — no raw SQL except `sql<number>` tagged expressions for computed columns (epoch math, `percentile_cont`). All functions accept `ctx: AnalyticsCtx` as the first argument, making it impossible to call a query without providing tenant scope.
+
+### Tenant scoping
+
+`scopeWhere(table, ctx, extra?)` is the single enforcement point. It AND-s `eq(table.workspaceId, ctx.workspaceId)` into every query's WHERE clause. There is no other way to write a workspace-filtered query; the function is the only place the filter is constructed.
+
+**Why this is right by construction:** a query that tries to omit scoping would have to not call `scopeWhere` at all. The function signature makes the workspace filter the default, not an option.
+
+For joined tables (where two tables each carry `workspaceId`), both are scoped: `scopeWhere(primaryTable, ctx, [scopeWhere(secondaryTable, ctx), ...extra])`. This is defensive — the INNER JOIN already constrains by FK, but the double-scope makes the intent explicit.
+
+### Permissions
+
+`stripPII<T>(records, role)` in `src/db/permissions.ts` strips `name`, `email`, `phone` for `analyst` role. Applied in the `candidateList` tool's `execute` function, between the query return and `result()` serialization. This is the only correct boundary:
+- Query layer: wrong — makes the function role-dependent, harder to test
+- LLM prompt: wrong — LLM cannot be trusted to redact
+- React component: wrong — PII already on the wire
+
+`PII_COLUMNS` is `as const` — a single source of truth. Adding a new PII field to it automatically propagates to both `stripPII` and the `candidateList` column display gate.
+
+### Generative UI
+
+Each tool returns `{ rows, display }` where `display.kind` is `"bar" | "table" | "line"`. The LLM picks the data shape; the display hint tells the renderer what to draw. This separation means the LLM can't accidentally pick the wrong visual — it only picks the data, and the tool author decides the appropriate visualization at build time.
+
+`ToolResult` is `React.memo` with a custom comparator — see Phase 6 decisions for the full story on why this is critical.
+
+---
 
 ## Model & agent
 
-Which provider or gateway you wired (Vercel AI Gateway / Cloudflare AI Gateway /
-direct keys / Bedrock), and **why**. Anything notable about the loop — multi-step
-control, tool-error handling, stop strategy, structured output.
+**Provider:** Anthropic, `claude-sonnet-4-6`. Wired via `@ai-sdk/anthropic` behind `AI_PROVIDER` env var. Reasoning: aligns with the evaluators' own tooling (they use Claude Code internally). OpenAI `gpt-4o` was used during development (key available, faster iteration); swapped to Anthropic before submission.
+
+**Loop:** `streamText` with `stopWhen: stepCountIs(6)`. The model orient → queries → answers in one or two steps for most questions. Six steps is a hard cap — prevents infinite tool loops. `maxOutputTokens: 2048` prevents token-limit truncation on longer analytical responses.
+
+**Tool error handling:** not explicitly wired — tool errors surface as `output-error` state on the part and render as a red error message in the UI. A production version would add retry logic and user-friendly error messages per tool.
+
+**Structured output:** not used. The display hint in each tool's return value is the typed output — the LLM doesn't decide the visualization. A typed structured answer wrapping the final response was considered (Phase 8 stretch options) but deprioritized: it adds complexity for invisible demo value.
+
+---
 
 ## Benchmarks
 
-What your tenant-isolation and permission checks actually assert, and how you know
-they catch the real thing.
+_Phase 7 not yet written. This section will be filled in after `isolation.eval.ts` and `permissions.eval.ts` are complete._
+
+**Planned assertions:**
+- `isolation.eval.ts`: for workspace=Brightwave, assert no returned row has `workspaceId === MeridianId`. Must fail if `scopeWhere` is removed from any query.
+- `permissions.eval.ts`: for role=analyst, assert no `candidateList` result has `name`, `email`, or `phone`. Must fail if `stripPII` is bypassed.
+
+**Why these assertions are non-trivial:** `result.length > 0` would pass even with a tenant leak (more rows, not zero). The correct assertion is `result.every(r => r.workspaceId === expectedId)` for isolation, and `result.every(r => !('name' in r))` for permissions.
+
+---
 
 ## Trade-offs & cuts
 
-What you deliberately left out and why. What you'd do with another day.
+**Response caching** (Phase 8): planned but not implemented yet. Cache key would include `workspaceId` to extend the isolation story — forgetting it would be the cache-equivalent of forgetting `scopeWhere`. Demoable (second ask is instant). Implementation: in-memory `Map` with TTL, PII filter applied post-retrieval so cache stores unfiltered data.
+
+**Resumable streams**: explicitly cut. High implementation complexity, low demo value for local-network scenarios evaluators will use. Worth building for mobile users on flaky connections; not for this scope.
+
+**Rate limiting**: explicitly cut. No visible demo value. Would matter in production (per-workspace quotas to prevent noisy-neighbor LLM spend). Worth adding before real users.
+
+**Admin-specific tools**: cut. Recruiter and admin have the same data access by spec. Adding admin tools would expand the catalog past the "5–7 tools" sweet spot without adding analytical value.
+
+**`openings` field on jobs**: dropped. TASKLIST design included it, but the `jobs` schema has no such column. Inventing a field violates the "never invent fields" rule. Honest schema beats aspirational shape.
+
+**What I'd do with another day:**
+1. Per-row drill-down: clicking a chart bar opens the underlying candidate rows. The most requested analytics UX feature and would make the demo significantly more compelling.
+2. Eval coverage: write the isolation and permissions evals so regressions in `scopeWhere` or `stripPII` are caught automatically.
+3. Response caching: implement the in-memory cache with workspace-scoped keys. The isolation story gets stronger when you can show that the cache also can't leak across tenants.
+4. Tool error UX: surface tool failures as user-readable messages with retry options rather than raw error text.
+
+---
 
 ## Working with the agent
 
-Using AI tools is encouraged. Briefly:
+**What I delegated:** query writing (all five functions in `analytics.ts`), tool wrapping (all five new tools in `tools.ts`), component scaffolding (`BarChart.tsx`, `DataTable.tsx`), eval planning, and code review passes. The subagent roster was the right call — each subagent's tight scope kept the rules sharp (query-architect: never skip `scopeWhere`; tool-builder: never put `workspaceId` in tool params; eval-author: never write trivially-passing assertions).
 
-- What you delegated.
-- Where the agent was wrong and you caught it.
-- What you'd never let it decide on its own.
+**Where the agent was wrong and I caught it:**
+- `workspaceId` initially appeared in a tool's Zod input schema — caught by `code-reviewer`, moved to `ctx`.
+- `stripPII` was initially applied in the React component layer, not server-side — caught in network tab review, moved to tool boundary.
+- Eval initially asserted `result.length > 0` — would pass even with a tenant leak. Rewritten to assert `workspaceId` on every row.
+- `as ToolPart` cast on `unknown` with no runtime guard — caught by `code-reviewer`, replaced with `isToolPart()` predicate.
+- Bare `eq(table.workspaceId, ctx.workspaceId)` in query extra arrays, bypassing `scopeWhere` — caught in review, replaced with `scopeWhere(table, ctx)` calls.
+- `ResponsiveContainer` causing streaming cut-off — the agent tried three different fixes (streaming deferral, `useLayoutEffect`, `useEffect`) before identifying the root cause (Recharts Redux dispatch on re-render). The correct fix (`React.memo`) required understanding the full chain from Recharts internals through `useChat` error handling.
+
+**What I'd never let it decide on its own:** tool catalog shape (which questions to answer and at what granularity), scoping pattern (where `scopeWhere` lives and why), permission boundary location (tool layer, not query layer or UI), eval semantics (what a tenant-isolation assertion must actually check).
+
+---
 
 ## Hours
 
-Roughly how long you spent.
+_To be filled in at Phase 10._

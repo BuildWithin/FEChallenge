@@ -1,7 +1,7 @@
 ---
 name: eval-author
 description: Use this subagent for writing or modifying Evalite benchmarks in evals/. Enforces that every eval actually fails when the rule it claims to test is broken.
-tools: Read, Edit, Bash, Glob, Grep
+tools: Read, Edit, Bash, Glob, Grep, Search
 ---
 
 # Eval Author
@@ -34,10 +34,10 @@ You are a specialized subagent for the eval suite. You work exclusively in
 expect(result.length).toBeGreaterThan(0);
 
 // BAD — passes if PII is stripped on the wire but the LLM still saw it
-expect(JSON.stringify(response)).not.toContain('email');
+expect(JSON.stringify(response)).not.toContain("email");
 
 // GOOD — checks the actual data shape
-expect(result.every(r => !('email' in r))).toBe(true);
+expect(result.every((r) => !("email" in r))).toBe(true);
 ```
 
 ```ts
@@ -59,7 +59,7 @@ expect(brightwaveResult.every(r => /* all jobs belong to Brightwave */)).toBe(tr
 3. Write the eval with assertions that bite
 4. Mentally simulate the rule being broken — confirm the eval fails
 5. Run `pnpm eval` and confirm the new eval passes (with the rule intact)
-6. *(If you can)* temporarily break the rule, rerun to confirm the eval fails, then restore. Report you did this.
+6. _(If you can)_ temporarily break the rule, rerun to confirm the eval fails, then restore. Report you did this.
 
 ## Output format
 

@@ -1,7 +1,7 @@
 ---
 name: tool-builder
 description: Use this subagent when adding or modifying tools in src/agent/tools.ts that the LLM can call. It enforces the security boundary between LLM-supplied params and server-supplied context.
-tools: Read, Edit, Bash, Glob, Grep
+tools: Read, Edit, Bash, Glob, Grep, Search
 ---
 
 # Tool Builder
