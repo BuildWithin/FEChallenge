@@ -6,7 +6,7 @@ import {
   type UIMessage,
 } from "ai";
 
-import { ensureSchema } from "@/db/client";
+import { ensureSeeded } from "@/db/client";
 import type { Role } from "@/db/permissions";
 import { buildTools } from "./tools";
 import { getModel, buildSystemPrompt } from "./provider";
@@ -32,7 +32,7 @@ export async function streamCopilot({
   /** Override the model — e.g. wrap it with evalite's wrapAISDKModel in evals. */
   model?: LanguageModel;
 }) {
-  await ensureSchema();
+  await ensureSeeded();
 
   // A minimal loop: one model, the scoped tools, capped at 6 steps via
   // `stopWhen`. Tool failures are caught per-tool (the `safe` wrapper in

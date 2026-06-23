@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { db, ensureSchema } from "@/db/client";
+import { db, ensureSeeded } from "@/db/client";
 import { applicationCountByStage } from "@/db/analytics";
 import { workspaces } from "@/db/schema";
 import { publicProcedure, router } from "../trpc";
@@ -9,7 +9,7 @@ export const appRouter = router({
   workspaces: router({
     // For the tenant switcher in the UI.
     list: publicProcedure.query(async () => {
-      await ensureSchema();
+      await ensureSeeded();
       return db.select().from(workspaces).orderBy(workspaces.name);
     }),
   }),
@@ -20,7 +20,7 @@ export const appRouter = router({
     applicationsByStage: publicProcedure
       .input(z.object({ jobId: z.string().optional() }).optional())
       .query(async ({ ctx, input }) => {
-        await ensureSchema();
+        await ensureSeeded();
         return applicationCountByStage(ctx, input ?? {});
       }),
   }),

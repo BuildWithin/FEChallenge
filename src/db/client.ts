@@ -38,3 +38,30 @@ export function ensureSchema(): Promise<void> {
   }
   return initPromise;
 }
+
+/**
+ * Seed-on-boot, for ephemeral / in-memory deploys (e.g. Vercel serverless with
+ * `PGLITE_DIR=memory://`) where the DB starts empty on every cold start and the
+ * offline `pnpm db:seed` step never ran. Opt-in via `SEED_ON_BOOT=1`; otherwise
+ * this is just `ensureSchema()` so local dev and tests are untouched.
+ *
+ * Memoized (one run per process) and gated on an empty DB, so it can never wipe
+ * a live request. Safe because the app only READS the seeded data.
+ */
+let seedPromise: Promise<void> | null = null;
+
+export function ensureSeeded(): Promise<void> {
+  if (process.env.SEED_ON_BOOT !== "1") return ensureSchema();
+  if (!seedPromise) {
+    seedPromise = (async () => {
+      await ensureSchema();
+      const existing = await db.select().from(schema.workspaces).limit(1);
+      if (existing.length === 0) {
+        // Lazy import to avoid a circular import (seed.ts imports `db`).
+        const { seed } = await import("./seed");
+        await seed();
+      }
+    })();
+  }
+  return seedPromise;
+}
