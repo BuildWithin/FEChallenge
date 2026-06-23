@@ -26,4 +26,11 @@ export const env = {
 
   /** File-backed PGlite directory, shared by the seed and dev processes. */
   PGLITE_DIR: process.env.PGLITE_DIR ?? "./.pglite",
+
+  /**
+   * Neon (or any Postgres) connection string. When set, the app uses Neon
+   * over HTTP pooling instead of the local file-backed PGlite instance.
+   * Leave unset in local development.
+   */
+  DATABASE_URL: process.env.DATABASE_URL,
 } as const;

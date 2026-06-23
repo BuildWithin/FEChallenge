@@ -3,7 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { ROLES } from "@/db/permissions";
 import type { Display, Row } from "@/agent/artifact";
@@ -13,6 +13,9 @@ import {
   useTenant,
   useTRPC,
 } from "./providers";
+import { BarChart } from "./components/BarChart";
+import { DataTable } from "./components/DataTable";
+import { LineChart } from "./components/LineChart";
 
 export default function Page() {
   const { activeWorkspace, setActiveWorkspace, role, setRole } = useTenant();
@@ -40,10 +43,16 @@ export default function Page() {
   const { messages, sendMessage, status } = useChat({
     id: `${activeWorkspace}:${role}`,
     transport,
+    onError: (err) => console.error("[chat] stream error:", err),
   });
 
   const [input, setInput] = useState("");
   const busy = status === "streaming" || status === "submitted";
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,31 +114,41 @@ export default function Page() {
             </p>
           )}
 
-          {messages.map((message) => (
-            <div key={message.id} className="space-y-2">
-              <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                {message.role}
+          {messages.map((message, msgIdx) => {
+            const isLastMessage = msgIdx === messages.length - 1;
+            return (
+              <div key={message.id} className="space-y-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  {message.role}
+                </div>
+                {message.parts.map((part, i) => {
+                  if (part.type === "text") {
+                    return (
+                      <p
+                        key={i}
+                        className="whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
+                      >
+                        {part.text}
+                      </p>
+                    );
+                  }
+                  if (part.type.startsWith("tool-")) {
+                    return (
+                      <ToolCall
+                        key={i}
+                        part={part}
+                        streaming={isLastMessage && busy}
+                      />
+                    );
+                  }
+                  return null;
+                })}
               </div>
-              {message.parts.map((part, i) => {
-                if (part.type === "text") {
-                  return (
-                    <p
-                      key={i}
-                      className="whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
-                    >
-                      {part.text}
-                    </p>
-                  );
-                }
-                if (part.type.startsWith("tool-")) {
-                  return <ToolCall key={i} part={part} />;
-                }
-                return null;
-              })}
-            </div>
-          ))}
+            );
+          })}
 
           {busy && <p className="text-xs text-gray-400">Copilot is working&hellip;</p>}
+          <div ref={bottomRef} />
         </div>
 
         <form
@@ -191,58 +210,107 @@ type ToolPart = {
   errorText?: string;
 };
 
-function ToolCall({ part }: { part: unknown }) {
-  const p = part as ToolPart;
-  const name = p.type.replace(/^tool-/, "");
-  const done = p.state === "output-available";
-  const errored = p.state === "output-error";
+function isToolPart(part: unknown): part is ToolPart {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    typeof (part as Record<string, unknown>).type === "string"
+  );
+}
+
+function ToolCall({ part, streaming }: { part: unknown; streaming: boolean }) {
+  if (!isToolPart(part)) return null;
+  const name = part.type.replace(/^tool-/, "");
+  const done = part.state === "output-available";
+  const errored = part.state === "output-error";
+  const calling = !done && !errored;
 
   return (
     <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
-      <div className="font-medium text-gray-600">
+      <div className="flex items-center gap-1.5 font-medium text-gray-600">
         {name}{" "}
-        <span className="font-normal text-gray-400">
-          {errored ? "· error" : done ? "· result" : "· calling…"}
-        </span>
+        {calling && (
+          <span className="flex items-center gap-1 font-normal text-gray-400">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gray-300" />
+            calling&hellip;
+          </span>
+        )}
+        {done && <span className="font-normal text-gray-400">&middot; result</span>}
+        {errored && <span className="font-normal text-red-400">&middot; error</span>}
       </div>
-      {errored && <p className="mt-1 text-red-500">{p.errorText}</p>}
-      {done && <RowsTable output={p.output} />}
+      {errored && <p className="mt-1 text-red-500">{part.errorText}</p>}
+      {done && !streaming && <ToolResult output={part.output} />}
+      {done && streaming && <p className="mt-1 text-gray-400">Loading chart…</p>}
     </div>
   );
 }
 
-function RowsTable({ output }: { output?: { rows?: Row[]; display?: Display } }) {
-  const rows = output?.rows ?? [];
-  if (rows.length === 0) return <p className="mt-1 text-gray-400">No rows.</p>;
-
-  const display = output?.display;
-  const columns =
-    display && display.kind === "table"
-      ? display.columns
-      : Object.keys(rows[0]);
-
+// memo prevents BarChart (and Recharts internals) from re-rendering on every
+// streaming text delta — completed tool results never change, but parent
+// re-renders on each token, which was causing Recharts Redux dispatch → throw
+// → useChat error → stream cut mid-sentence.
+// Custom comparator: AI SDK may reconstruct the output wrapper object on each
+// tick even though the underlying rows array and display config are unchanged.
+// Compare rows by reference (SDK preserves the array) and display by value.
+function toolResultEqual(
+  prev: { output?: { rows?: Row[]; display?: Display } },
+  next: { output?: { rows?: Row[]; display?: Display } },
+) {
+  if (prev.output === next.output) return true;
+  if (!prev.output || !next.output) return false;
+  // Prefer reference equality on rows (AI SDK preserves array refs for completed
+  // tool results). Fall back to value comparison in case the SDK ever reconstructs
+  // the wrapper object, which would defeat memoization.
   return (
-    <table className="mt-2 w-full border-collapse text-left">
-      <thead>
-        <tr className="text-gray-400">
-          {columns.map((c) => (
-            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 8).map((row, i) => (
-          <tr key={i} className="text-gray-600">
-            {columns.map((c) => (
-              <td key={c} className="border-b border-gray-50 py-1 pr-2">
-                {String(row[c] ?? "")}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    (prev.output.rows === next.output.rows ||
+      JSON.stringify(prev.output.rows) === JSON.stringify(next.output.rows)) &&
+    JSON.stringify(prev.output.display) === JSON.stringify(next.output.display)
   );
 }
+
+const ToolResult = memo(function ToolResult({
+  output,
+}: {
+  output?: { rows?: Row[]; display?: Display };
+}) {
+  const rows = output?.rows ?? [];
+  const display = output?.display;
+
+  if (!display || rows.length === 0) {
+    return <p className="mt-1 text-gray-400">No data.</p>;
+  }
+
+  switch (display.kind) {
+    case "bar":
+      return (
+        <div className="mt-2">
+          <BarChart
+            data={rows}
+            xKey={display.x}
+            yKey={display.y}
+            title={display.title}
+          />
+        </div>
+      );
+    case "line":
+      return (
+        <div className="mt-2">
+          <LineChart
+            data={rows}
+            xKey={display.x}
+            yKey={display.y}
+            title={display.title}
+          />
+        </div>
+      );
+    case "table":
+      return <DataTable data={rows} columns={display.columns} />;
+    default:
+      return (
+        <pre className="mt-1 overflow-x-auto text-xs text-gray-400">
+          {JSON.stringify(output, null, 2)}
+        </pre>
+      );
+  }
+}, toolResultEqual);
