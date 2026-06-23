@@ -13,7 +13,7 @@ completeness. Delete these prompts as you fill them in._
 - Clarified stretch goal strategy: evaluate all four options + deploy, write
   trade-off analysis in DECISIONS.md, implement the winner
 - Designed the 5-subagent roster on paper before writing any code
-- Created TASKLIST.md, CLAUDE.md (extends starter), and .claude/agents/*.md
+- Created TASKLIST.md, CLAUDE.md (extends starter), and .claude/agents/\*.md
   from the planning session — committed before Phase 1
 
 ### Key decisions
@@ -61,14 +61,14 @@ completeness. Delete these prompts as you fill them in._
 
 Six tools planned (one is the given reference):
 
-| Tool | Question answered | Display |
-|---|---|---|
-| `applicationCountByStage` | Pipeline shape by stage | `bar_chart` |
-| `applicationsByJob` | Volume per role | `table` |
-| `candidateSourceBreakdown` | Where candidates come from | `bar_chart` |
-| `timeToHireByJob` | Speed per role | `table` |
-| `jobList` | What's open | `table` |
-| `candidateList` | Candidates for a job (PII-gated) | `table` |
+| Tool                       | Question answered                | Display     |
+| -------------------------- | -------------------------------- | ----------- |
+| `applicationCountByStage`  | Pipeline shape by stage          | `bar_chart` |
+| `applicationsByJob`        | Volume per role                  | `table`     |
+| `candidateSourceBreakdown` | Where candidates come from       | `bar_chart` |
+| `timeToHireByJob`          | Speed per role                   | `table`     |
+| `jobList`                  | What's open                      | `table`     |
+| `candidateList`            | Candidates for a job (PII-gated) | `table`     |
 
 ### Key decisions
 
@@ -109,13 +109,13 @@ Five query functions added to `src/db/analytics.ts`, all scoped through `scopeWh
 
 Five tools added to `buildTools` in `src/agent/tools.ts`:
 
-| Tool | Wraps | Display |
-|---|---|---|
-| `applicationsByJob` | `getApplicationsByJob` | `table` |
-| `candidateSourceBreakdown` | `getCandidateSourceBreakdown` | `bar` |
-| `timeToHireByJob` | `getTimeToHireByJob` | `table` |
-| `jobList` | `getJobList` | `table` |
-| `candidateList` | `getCandidatesForJob` | `table` (role-aware columns) |
+| Tool                       | Wraps                         | Display                      |
+| -------------------------- | ----------------------------- | ---------------------------- |
+| `applicationsByJob`        | `getApplicationsByJob`        | `table`                      |
+| `candidateSourceBreakdown` | `getCandidateSourceBreakdown` | `bar`                        |
+| `timeToHireByJob`          | `getTimeToHireByJob`          | `table`                      |
+| `jobList`                  | `getJobList`                  | `table`                      |
+| `candidateList`            | `getCandidatesForJob`         | `table` (role-aware columns) |
 
 ### Key decisions
 
@@ -248,14 +248,14 @@ This is a multi-tenant ATS analytics copilot: a chat UI where hiring team member
 
 Six tools, not more. Too many confuses LLM tool selection; too few makes each tool too broad to drive precisely. Each answers one question:
 
-| Tool | Question | Display |
-|---|---|---|
-| `applicationCountByStage` | Pipeline shape | bar chart |
-| `applicationsByJob` | Volume per role | table |
-| `candidateSourceBreakdown` | Where candidates come from | bar chart |
-| `timeToHireByJob` | Speed per role | table |
-| `jobList` | What's open | table |
-| `candidateList` | Candidates for a job (**PII-gated**) | table |
+| Tool                       | Question                             | Display   |
+| -------------------------- | ------------------------------------ | --------- |
+| `applicationCountByStage`  | Pipeline shape                       | bar chart |
+| `applicationsByJob`        | Volume per role                      | table     |
+| `candidateSourceBreakdown` | Where candidates come from           | bar chart |
+| `timeToHireByJob`          | Speed per role                       | table     |
+| `jobList`                  | What's open                          | table     |
+| `candidateList`            | Candidates for a job (**PII-gated**) | table     |
 
 Exactly one PII tool limits the surface area where the role gate applies. `jobId?` as the common optional param lets the LLM compose: call `jobList` to discover a job, then pass `jobId` to `candidateList`.
 
@@ -276,6 +276,7 @@ For joined tables (where two tables each carry `workspaceId`), both are scoped: 
 ### Permissions
 
 `stripPII<T>(records, role)` in `src/db/permissions.ts` strips `name`, `email`, `phone` for `analyst` role. Applied in the `candidateList` tool's `execute` function, between the query return and `result()` serialization. This is the only correct boundary:
+
 - Query layer: wrong — makes the function role-dependent, harder to test
 - LLM prompt: wrong — LLM cannot be trusted to redact
 - React component: wrong — PII already on the wire
@@ -306,13 +307,13 @@ OpenAI was chosen for production because the key was available immediately. Anth
 
 **Eval suite: ~93% overall** (`pnpm eval`, 5 files, 9 evals, ~20s)
 
-| Eval | Score | Type |
-|---|---|---|
-| `isolation.eval.ts` | 100% | Deterministic |
-| `permissions.eval.ts` | 100% | Deterministic |
-| `copilot.eval.ts` (reference) | 100% | Semi-deterministic |
-| `caching.eval.ts` | 100% | Deterministic |
-| `quality.eval.ts` | ~77-82% | Stochastic (LLM judge) |
+| Eval                          | Score   | Type                   |
+| ----------------------------- | ------- | ---------------------- |
+| `isolation.eval.ts`           | 100%    | Deterministic          |
+| `permissions.eval.ts`         | 100%    | Deterministic          |
+| `copilot.eval.ts` (reference) | 100%    | Semi-deterministic     |
+| `caching.eval.ts`             | 100%    | Deterministic          |
+| `quality.eval.ts`             | ~77-82% | Stochastic (LLM judge) |
 
 **Why these assertions are non-trivial:** `result.length > 0` would pass even with a tenant leak (more rows, not zero). The isolation eval asserts every row ID starts with the expected workspace prefix; a leaked row from Meridian would carry "mer-" in a Brightwave result. The permissions eval asserts `!("name" in row)` for every analyst-role row — not just that the result is non-empty.
 
@@ -322,12 +323,12 @@ OpenAI was chosen for production because the key was available immediately. Anth
 
 Four options were on the table. All four were analyzed before implementing any of them.
 
-| Option | Demo value | Complexity | Production value | Verdict |
-|---|---|---|---|---|
-| Typed structured answer | Low — invisible to the user | Low–Med | Medium | Cut |
-| Resumable streams | Low — needs a flaky connection to demo | High | High | Cut |
-| **Response caching** | **High — second ask is instant** | **Med** | **High** | **Built** |
-| Rate limiting | Low — no visible signal | Low | High | Cut |
+| Option                  | Demo value                             | Complexity | Production value | Verdict   |
+| ----------------------- | -------------------------------------- | ---------- | ---------------- | --------- |
+| Typed structured answer | Low — invisible to the user            | Low–Med    | Medium           | Cut       |
+| Resumable streams       | Low — needs a flaky connection to demo | High       | High             | Cut       |
+| **Response caching**    | **High — second ask is instant**       | **Med**    | **High**         | **Built** |
+| Rate limiting           | Low — no visible signal                | Low        | High             | Cut       |
 
 **Why caching won:** it's the only stretch that reinforces the core isolation story. The cache key must include `workspaceId` — omitting it would be the cache-equivalent of omitting `scopeWhere`. You can demo the win (ask the same question twice, second is instant) and explain the architectural decision in the same breath. It also reduces real costs: LLM tokens and DB round-trips are both expensive on repeated questions.
 
@@ -374,9 +375,12 @@ One known trade-off: PGlite's WASM binary is still bundled in the production bui
 
 ## Working with the agent
 
+Before writing a single line of code, I opened Claude.ai to understand the full scope of the build. I used it to read the README in depth, ask clarifying questions on the stack (tRPC and the AI SDK were unfamiliar), and think through the "4 hours" signal as a scope boundary rather than a stopwatch. Out of that session came my own `CLAUDE.md` (hard rules, anti-patterns, collaboration protocol), `TASKLIST.md` (10-phase plan with per-substep checklists), and the 5-subagent roster — all committed before Phase 1 touched any code. The planning investment paid off: every subagent entered with tight scope and explicit rules, so there was no "figure it out as you go" ambiguity mid-build.
+
 **What I delegated:** query writing (all five functions in `analytics.ts`), tool wrapping (all five new tools in `tools.ts`), component scaffolding (`BarChart.tsx`, `DataTable.tsx`), eval planning, and code review passes. The subagent roster was the right call — each subagent's tight scope kept the rules sharp (query-architect: never skip `scopeWhere`; tool-builder: never put `workspaceId` in tool params; eval-author: never write trivially-passing assertions).
 
 **Where the agent was wrong and I caught it:**
+
 - `workspaceId` initially appeared in a tool's Zod input schema — caught by `code-reviewer`, moved to `ctx`.
 - `stripPII` was initially applied in the React component layer, not server-side — caught in network tab review, moved to tool boundary.
 - Eval initially asserted `result.length > 0` — would pass even with a tenant leak. Rewritten to assert `workspaceId` on every row.
@@ -390,4 +394,5 @@ One known trade-off: PGlite's WASM binary is still bundled in the production bui
 
 ## Hours
 
-_To be filled in before final submission._
+7 hours total, spread across Monday around 7am to Tuesday around 8am.
+I caught a cold over the weekend, rested for most of Monday, and spent the build running a fever, so work happened in bursts with frequent breaks. That explains the commit spacing. Of the total time, roughly 1 hour was upfront brainstorming in Claude.ai before any code: scoping the build, mapping the stack gaps, and designing the subagent roster and collaboration protocol. The remaining 6 hours were implementation across the 10 phases. Healthy, I would have finished faster.
