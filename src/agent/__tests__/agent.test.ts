@@ -39,3 +39,18 @@ test("mock model drives real, multi-step tool calls through streamText", async (
   expect(totalToolCalls).toBeGreaterThan(0);
   expect(text.trim().length).toBeGreaterThan(0);
 });
+
+test("application trend questions route to applicationsOverTime", async () => {
+  const result = await streamCopilot({
+    workspaceId: "brightwave",
+    role: "admin",
+    messages: [userMessage("How have applications trended over time?")],
+  });
+
+  const steps = await result.steps;
+  const toolNames = steps.flatMap((step) =>
+    step.toolCalls.map((call) => call.toolName),
+  );
+
+  expect(toolNames).toContain("applicationsOverTime");
+});

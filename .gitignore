@@ -25,3 +25,10 @@ next-env.d.ts
 # private reference solution — must NOT ship in the public/candidate repo.
 # Move this into your private repo; it's here only so the full build isn't lost.
 /_reference
+
+# claude config
+.claude
+
+# local-only docs (kept on disk, not tracked)
+/DEMO.md
+/TOUR-CODIGO.md

@@ -9,6 +9,7 @@
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
     "db:seed": "tsx src/db/seed.ts",
+    "smoke": "tsx scripts/smoke-agent.ts",
     "eval": "evalite run",
     "eval:dev": "evalite watch",
     "test": "vitest run"

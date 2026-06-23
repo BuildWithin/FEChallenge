@@ -215,7 +215,7 @@ export async function seed(): Promise<void> {
 }
 
 // Run only when invoked directly (tsx src/db/seed.ts), not when imported
-// (e.g. by evals/run.ts, which calls `seed()` itself).
+// (e.g. by evals/copilot.eval.ts, which calls `seed()` itself).
 const invokedPath = process.argv[1]
   ? new URL(`file://${process.argv[1]}`).pathname
   : "";
