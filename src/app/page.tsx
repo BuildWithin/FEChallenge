@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { ROLES } from "@/db/permissions";
-import type { Display, Row, ToolUIPart } from "@/agent/artifact";
+import type { ToolUIPart } from "@/agent/artifact";
+import { ArtifactView } from "./artifacts";
 import {
   getActiveRole,
   getActiveWorkspace,
@@ -175,65 +176,71 @@ export default function Page() {
 }
 
 // ---------------------------------------------------------------------------
-// Tool-call rendering.
-//
-// TODO(candidate): this is a deliberately bare stub. Each tool returns
-// `{ rows, display }` where `display.kind` is "table" | "bar" | "line". Turn
-// these into real, streaming generative UI — render bar/line charts, show the
-// "calling…" → "result" transition nicely, handle empty/error states. Make it
-// something you'd ship.
+// Tool-call rendering: name + status chip, a shimmer while the tool runs, the
+// error text on failure, and the generative `ArtifactView` (bar/line/table)
+// once the result streams in. See src/app/artifacts.tsx.
 // ---------------------------------------------------------------------------
+type ToolStatus = "running" | "result" | "error";
+
 function ToolCall({ part }: { part: ToolUIPart }) {
-  const name = part.type.replace(/^tool-/, "");
-  const done = part.state === "output-available";
-  const errored = part.state === "output-error";
+  const name = prettyToolName(part.type.replace(/^tool-/, ""));
+  const status: ToolStatus =
+    part.state === "output-error"
+      ? "error"
+      : part.state === "output-available"
+        ? "result"
+        : "running";
 
   return (
-    <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
-      <div className="font-medium text-gray-600">
-        {name}{" "}
-        <span className="font-normal text-gray-400">
-          {errored ? "· error" : done ? "· result" : "· calling…"}
-        </span>
+    <div className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-gray-700">{name}</span>
+        <StatusChip status={status} />
       </div>
-      {errored && <p className="mt-1 text-red-500">{part.errorText}</p>}
-      {done && <RowsTable output={part.output} />}
+      {status === "error" && (
+        <p className="mt-1 text-red-500">{part.errorText ?? "Tool failed."}</p>
+      )}
+      {status === "running" && <Shimmer />}
+      {status === "result" && <ArtifactView output={part.output} />}
     </div>
   );
 }
 
-function RowsTable({ output }: { output?: { rows?: Row[]; display?: Display } }) {
-  const rows = output?.rows ?? [];
-  if (rows.length === 0) return <p className="mt-1 text-gray-400">No rows.</p>;
-
-  const display = output?.display;
-  const columns =
-    display && display.kind === "table"
-      ? display.columns
-      : Object.keys(rows[0]);
-
+function StatusChip({ status }: { status: ToolStatus }) {
+  const styles: Record<ToolStatus, string> = {
+    running: "bg-amber-50 text-amber-600",
+    result: "bg-emerald-50 text-emerald-700",
+    error: "bg-red-50 text-red-600",
+  };
+  const label = { running: "running", result: "result", error: "error" }[status];
   return (
-    <table className="mt-2 w-full border-collapse text-left">
-      <thead>
-        <tr className="text-gray-400">
-          {columns.map((c) => (
-            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 8).map((row, i) => (
-          <tr key={i} className="text-gray-600">
-            {columns.map((c) => (
-              <td key={c} className="border-b border-gray-50 py-1 pr-2">
-                {String(row[c] ?? "")}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <span
+      className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[status]}`}
+    >
+      {status === "running" && (
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+      )}
+      {label}
+    </span>
   );
+}
+
+function Shimmer() {
+  return (
+    <div className="mt-2 space-y-1.5">
+      {[80, 60, 70].map((w, i) => (
+        <div
+          key={i}
+          className="h-3 animate-pulse rounded bg-gray-100"
+          style={{ width: `${w}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function prettyToolName(name: string): string {
+  return name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^./, (c) => c.toUpperCase());
 }

@@ -14,9 +14,9 @@ Build order and state:
    each with an LLM-fillable input schema and a `{ rows, display }` return.
 3. **Real model/agent** (`src/agent/provider.ts`) — ✅ done. Wired Google Gemini
    (free tier) and hardened the loop.
-4. **Generative UI** (`src/app/page.tsx`) — ⏳ planned. Render `bar`/`line`/`table`
-   from the display hint, with streaming and empty/error states.
-5. **Evals** (`evals/copilot.eval.ts`) — ⏳ planned. Tenant-isolation, permission, and
+4. **Generative UI** (`src/app/artifacts.tsx`) — ✅ done. Renders `bar`/`line`/`table`
+   from the display hint, with running/empty/error states.
+5. **Evals** (`evals/copilot.eval.ts`) — ⏳ next. Tenant-isolation, permission, and
    (once a model is wired) answer-quality scorers.
 
 Verification steps per layer live in `TESTING.md`.
@@ -43,7 +43,12 @@ Verification steps per layer live in `TESTING.md`.
   (empty args) still drives them. `ctx` is threaded in, so tenant/PII guarantees hold
   at the tool boundary — `src/agent/__tests__/tools.test.ts` proves it by executing
   the tools directly.
-- **Generative UI** — _planned (layer 4)._
+- **Generative UI** — `src/app/artifacts.tsx` turns each tool result into a component
+  from its `display` hint: a CSS bar chart, an SVG line chart, or a table (PII-aware
+  columns come straight from the tool). Dependency-free on purpose — no charting lib
+  to fight React 19 / Next 16, and the surface stays small and predictable. `page.tsx`
+  shows a per-tool status chip (running → result/error) with a shimmer while the tool
+  runs and the chart streaming in on completion.
 
 ## Model & agent
 

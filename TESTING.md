@@ -112,11 +112,19 @@ Loop hardening to confirm manually: analytics answers are stable (temperature 0)
 the agent stops within 6 steps, and a tool error renders as an `output-error` part
 instead of crashing the stream.
 
-## Layer 4 — Generative UI ⏳ (not built yet)
+## Layer 4 — Generative UI ✅
 
-**Code:** `src/app/page.tsx`
-**Planned checks:** `bar` / `line` / `table` render from the `display` hint; calling →
-result → empty/error states; manual pass in `pnpm dev`.
+**Code:** `src/app/artifacts.tsx`, `src/app/page.tsx`
+
+Compile-checked by `pnpm build` (Next 16 / React 19 client bundle) and
+`pnpm typecheck`. Manual click-path in `pnpm dev` (with the Gemini key set):
+
+- "How does my pipeline look by stage?" → **bar** chart.
+- "How have applications trended?" → **line** chart.
+- "List the open jobs" / "Show me candidates" → **table** (as `admin`/`recruiter`,
+  candidate PII columns appear; as `analyst`, they're gone).
+- While a tool runs you see a **shimmer + "running"** chip; on completion the chart
+  replaces it ("result"); a failing tool shows the **"error"** chip + message.
 
 ## Layer 5 — Agent evals ⏳ (stub only)
 
