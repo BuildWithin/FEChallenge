@@ -4,7 +4,7 @@
  * with zero configuration.
  */
 
-export type AiProvider = "mock" | "anthropic" | "openai" | "bedrock";
+export type AiProvider = "mock" | "anthropic" | "openai" | "bedrock" | "google";
 
 export const env = {
   /** Which model provider the agent uses. Defaults to the offline mock. */
@@ -16,6 +16,9 @@ export const env = {
   BEDROCK_MODEL:
     process.env.BEDROCK_MODEL ??
     "anthropic.claude-3-5-sonnet-20240620-v1:0",
+  // Gemini 2.5 Flash: fast, strong tool-calling, free-tier eligible via Google
+  // AI Studio. Override with GOOGLE_MODEL (e.g. gemini-2.5-pro on the paid tier).
+  GOOGLE_MODEL: process.env.GOOGLE_MODEL ?? "gemini-2.5-flash",
 
   /**
    * Optional gateway base URL. When set, the anthropic/openai providers route

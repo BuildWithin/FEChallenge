@@ -12,8 +12,8 @@ Build order and state:
    covered by tests.
 2. **Tool catalog** (`src/agent/tools.ts`) — ✅ done. Six tools wrap the query layer,
    each with an LLM-fillable input schema and a `{ rows, display }` return.
-3. **Real model/agent** (`src/agent/provider.ts`) — ⏳ next. Wire a real provider;
-   review loop control and tool-error handling.
+3. **Real model/agent** (`src/agent/provider.ts`) — ✅ done. Wired Google Gemini
+   (free tier) and hardened the loop.
 4. **Generative UI** (`src/app/page.tsx`) — ⏳ planned. Render `bar`/`line`/`table`
    from the display hint, with streaming and empty/error states.
 5. **Evals** (`evals/copilot.eval.ts`) — ⏳ planned. Tenant-isolation, permission, and
@@ -47,9 +47,19 @@ Verification steps per layer live in `TESTING.md`.
 
 ## Model & agent
 
-_Planned (layer 3)._ Boots on the offline mock today; the real provider choice and
-loop notes (multi-step control, tool-error handling, stop strategy) go here once
-wired.
+- **Provider — Google Gemini (`gemini-2.5-flash`), free tier.** Chosen because it
+  needs no billing to run (free key from Google AI Studio), is fast, and tool-calls
+  well — so a reviewer can run the real agent with zero cost. Added as a `google`
+  case in `src/agent/provider.ts` alongside anthropic/openai/bedrock; the same
+  `baseURL` gateway passthrough applies. Switching providers is a one-line env
+  change, and `gemini-2.5-pro` (paid) is a drop-in upgrade via `GOOGLE_MODEL`.
+- **Mock stays the default.** No key needed to boot or to run tests/evals; only a
+  real `AI_PROVIDER` flips to the live model. Tests force `mock` for determinism.
+- **Loop control** (`src/agent/run.ts`): `temperature: 0` for reproducible analytics;
+  `stopWhen: stepCountIs(6)` to bound the orient→query→answer loop (the model also
+  stops naturally on a tool-free closing message); `onError` logs stream-level
+  failures. A throwing tool surfaces as a tool-error part the model can recover from
+  and the UI renders, rather than killing the stream.
 
 ## Benchmarks
 

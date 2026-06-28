@@ -89,13 +89,36 @@ What it proves (by executing each tool the way the agent loop does — empty arg
 Tools added: `applicationCountByStage`, `candidatesBySource`, `listJobs`,
 `applicationsOverTime`, `timeToHire`, `listCandidates`.
 
-## Layer 3 — Generative UI ⏳ (not built yet)
+## Layer 3 — Real model (Google Gemini) ✅
+
+**Code:** `src/agent/provider.ts`, `src/agent/run.ts`, `src/env.ts`
+
+Tests and evals stay on the offline **mock** for determinism — the real model is
+opt-in via `AI_PROVIDER`. To verify the live agent:
+
+```bash
+# .env.local  (gitignored)
+AI_PROVIDER=google
+GOOGLE_GENERATIVE_AI_API_KEY=<free key from https://aistudio.google.com/apikey>
+
+pnpm dev          # then ask: "How does my pipeline look by stage?"
+```
+
+Wiring is verified without a key by `getModel()`:
+- `AI_PROVIDER=google` with no key → throws a friendly guard error.
+- with a key → builds a `gemini-2.5-flash` model.
+
+Loop hardening to confirm manually: analytics answers are stable (temperature 0),
+the agent stops within 6 steps, and a tool error renders as an `output-error` part
+instead of crashing the stream.
+
+## Layer 4 — Generative UI ⏳ (not built yet)
 
 **Code:** `src/app/page.tsx`
 **Planned checks:** `bar` / `line` / `table` render from the `display` hint; calling →
 result → empty/error states; manual pass in `pnpm dev`.
 
-## Layer 4 — Agent evals ⏳ (stub only)
+## Layer 5 — Agent evals ⏳ (stub only)
 
 **Code:** `evals/copilot.eval.ts`
 **Planned checks:** tenant-isolation eval (no foreign rows in any answer),
