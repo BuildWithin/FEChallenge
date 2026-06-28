@@ -1,0 +1,103 @@
+# Testing & verification
+
+How to verify each layer of the copilot as it's built. This is a **living
+document** — every commit that adds behavior should add the steps that prove it.
+For the *why* behind design choices, see `DECISIONS.md`.
+
+## Prerequisites
+
+```bash
+pnpm install
+pnpm db:seed     # wipe + seed the two workspaces (Brightwave, Meridian Logistics)
+```
+
+The DB is file-backed PGlite at `./.pglite`, shared by the seed, dev server, and
+tests. Reseed any time to get back to a known state.
+
+## Commands at a glance
+
+| Command | What it checks |
+| --- | --- |
+| `pnpm test` | The full vitest suite (unit + integration). |
+| `pnpm exec vitest run <path>` | One test file. |
+| `pnpm exec vitest watch <path>` | Re-run a file on save while building. |
+| `pnpm typecheck` | `next typegen && tsc --noEmit` — types across the repo. |
+| `pnpm eval` | Agent evals once (Evalite). |
+| `pnpm eval:dev` | Evalite watch + local UI with per-case traces. |
+| `pnpm dev` | App at http://localhost:3000 for manual checks. |
+
+> Tests share one file-backed PGlite dir, so `vitest.config.ts` sets
+> `fileParallelism: false` (worker processes must not open the same DB at once).
+
+---
+
+## The two hard requirements (must always pass)
+
+These are the bugs we most need to never ship. They have dedicated assertions and
+should stay green at every commit.
+
+1. **Tenant isolation** — no query returns another workspace's rows.
+2. **PII gating** — an `analyst` never receives candidate PII (name / email / phone).
+
+---
+
+## Layer 1 — Permissions + query layer ✅
+
+**Code:** `src/db/permissions.ts`, `src/db/analytics.ts`
+**Test:** `src/db/__tests__/analytics.test.ts`
+
+```bash
+pnpm exec vitest run src/db/__tests__/analytics.test.ts
+```
+
+What it proves:
+
+- **Permissions policy** — `canReadPII` / `canReadColumn` allow non-PII columns and
+  gate `candidates.name/email/phone` to non-analyst roles.
+- **Tenant isolation** — candidate/job rows are prefixed `bw-` vs `mer-`, the two ID
+  sets are disjoint, and a grouped aggregate total equals the row-level count for the
+  *same* workspace (proving counts aren't computed globally).
+- **PII gating by role** — admin & recruiter rows include `name/email/phone`; analyst
+  rows do **not have those keys at all** (columns are absent, not blanked) — the
+  guarantee that PII is unrepresentable for an analyst.
+- **Filters stay scoped** — status/source filters never escape the workspace;
+  stage / time-bucket / time-to-hire query shapes are sane.
+
+Manual spot-check (optional): switch the **Role** dropdown to `analyst` in the UI and
+confirm no PII appears; switch **Workspace** and confirm the numbers change.
+
+---
+
+## Layer 2 — Tool catalog ⏳ (not built yet)
+
+**Code:** `src/agent/tools.ts`
+**Planned checks:**
+
+- Each tool returns `{ rows, display }` with a valid `display.kind`.
+- Every tool input is **optional** (the offline mock calls tools with empty args, so
+  a required param breaks boot/tests).
+- Each tool threads `ctx` into the query layer — tenant + PII guarantees hold through
+  the tool boundary, not just at the DB.
+
+## Layer 3 — Generative UI ⏳ (not built yet)
+
+**Code:** `src/app/page.tsx`
+**Planned checks:** `bar` / `line` / `table` render from the `display` hint; calling →
+result → empty/error states; manual pass in `pnpm dev`.
+
+## Layer 4 — Agent evals ⏳ (stub only)
+
+**Code:** `evals/copilot.eval.ts`
+**Planned checks:** tenant-isolation eval (no foreign rows in any answer),
+permission eval (`analyst` answers contain no PII), and — once a real model is wired —
+answer-quality scoring.
+
+---
+
+## Conventions for adding to this doc
+
+When a commit adds behavior:
+
+1. Add/extend the test, keep `pnpm test` and `pnpm typecheck` green.
+2. Flip the relevant layer above to ✅ and list exactly what the test proves.
+3. If a guarantee can only be checked manually, write the click-path here.
