@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { ROLES } from "@/db/permissions";
-import type { Display, Row } from "@/agent/artifact";
+import type { Display, Row, ToolUIPart } from "@/agent/artifact";
 import {
   getActiveRole,
   getActiveWorkspace,
@@ -122,7 +122,7 @@ export default function Page() {
                   );
                 }
                 if (part.type.startsWith("tool-")) {
-                  return <ToolCall key={i} part={part} />;
+                  return <ToolCall key={i} part={part as ToolUIPart} />;
                 }
                 return null;
               })}
@@ -183,19 +183,10 @@ export default function Page() {
 // "calling…" → "result" transition nicely, handle empty/error states. Make it
 // something you'd ship.
 // ---------------------------------------------------------------------------
-type ToolPart = {
-  type: string;
-  state?: string;
-  input?: unknown;
-  output?: { rows?: Row[]; display?: Display };
-  errorText?: string;
-};
-
-function ToolCall({ part }: { part: unknown }) {
-  const p = part as ToolPart;
-  const name = p.type.replace(/^tool-/, "");
-  const done = p.state === "output-available";
-  const errored = p.state === "output-error";
+function ToolCall({ part }: { part: ToolUIPart }) {
+  const name = part.type.replace(/^tool-/, "");
+  const done = part.state === "output-available";
+  const errored = part.state === "output-error";
 
   return (
     <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
@@ -205,8 +196,8 @@ function ToolCall({ part }: { part: unknown }) {
           {errored ? "· error" : done ? "· result" : "· calling…"}
         </span>
       </div>
-      {errored && <p className="mt-1 text-red-500">{p.errorText}</p>}
-      {done && <RowsTable output={p.output} />}
+      {errored && <p className="mt-1 text-red-500">{part.errorText}</p>}
+      {done && <RowsTable output={part.output} />}
     </div>
   );
 }

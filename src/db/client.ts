@@ -11,13 +11,14 @@ import * as schema from "./schema";
  * In Next dev, modules can be re-evaluated across HMR; we stash the client on
  * `globalThis` so we don't open a second handle to the same directory.
  */
-const globalForDb = globalThis as unknown as {
-  __pglite__?: PGlite;
-};
+declare global {
+  // eslint-disable-next-line no-var
+  var __pglite__: PGlite | undefined;
+}
 
-const pglite = globalForDb.__pglite__ ?? new PGlite(env.PGLITE_DIR);
+const pglite = globalThis.__pglite__ ?? new PGlite(env.PGLITE_DIR);
 if (process.env.NODE_ENV !== "production") {
-  globalForDb.__pglite__ = pglite;
+  globalThis.__pglite__ = pglite;
 }
 
 export const db = drizzle(pglite, { schema });

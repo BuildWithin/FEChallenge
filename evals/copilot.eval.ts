@@ -7,6 +7,7 @@ import { workspaces } from "@/db/schema";
 import { seed } from "@/db/seed";
 import { getModel } from "@/agent/provider";
 import { streamCopilot } from "@/agent/run";
+import type { Row, ToolResult } from "@/agent/artifact";
 
 /**
  * Agent evals with Evalite (https://v1.evalite.dev) — the eval framework the AI
@@ -31,7 +32,7 @@ import { streamCopilot } from "@/agent/run";
 type Output = {
   text: string;
   toolNames: string[];
-  rows: Array<Record<string, unknown>>;
+  rows: Row[];
 };
 
 function userMessage(text: string): UIMessage {
@@ -61,8 +62,7 @@ async function runCopilot(
   const toolNames = steps.flatMap((s) => s.toolCalls.map((c) => c.toolName));
   const rows = steps.flatMap((s) =>
     s.toolResults.flatMap((r) => {
-      const out = (r as { output?: { rows?: Array<Record<string, unknown>> } })
-        .output;
+      const out = (r as { output?: ToolResult }).output;
       return out?.rows ?? [];
     }),
   );

@@ -68,16 +68,26 @@ confirm no PII appears; switch **Workspace** and confirm the numbers change.
 
 ---
 
-## Layer 2 — Tool catalog ⏳ (not built yet)
+## Layer 2 — Tool catalog ✅
 
 **Code:** `src/agent/tools.ts`
-**Planned checks:**
+**Test:** `src/agent/__tests__/tools.test.ts`
 
-- Each tool returns `{ rows, display }` with a valid `display.kind`.
-- Every tool input is **optional** (the offline mock calls tools with empty args, so
-  a required param breaks boot/tests).
-- Each tool threads `ctx` into the query layer — tenant + PII guarantees hold through
-  the tool boundary, not just at the DB.
+```bash
+pnpm exec vitest run src/agent/__tests__/tools.test.ts
+```
+
+What it proves (by executing each tool the way the agent loop does — empty args):
+
+- Every tool returns `{ rows, display }` with a valid `display.kind`
+  (`bar`/`line`/`table`) and is drivable with no params (offline-mock safe).
+- **PII holds at the tool boundary** — `listCandidates` as `analyst` returns rows with
+  no `name/email/phone` keys; as `recruiter` it includes them.
+- **Tenant scope holds at the tool boundary** — tool output for one workspace contains
+  only that workspace's rows (`mer-` prefixes for Meridian).
+
+Tools added: `applicationCountByStage`, `candidatesBySource`, `listJobs`,
+`applicationsOverTime`, `timeToHire`, `listCandidates`.
 
 ## Layer 3 — Generative UI ⏳ (not built yet)
 

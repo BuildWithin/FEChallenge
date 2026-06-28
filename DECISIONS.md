@@ -10,9 +10,9 @@ Build order and state:
 
 1. **Permissions + query layer** — ✅ done. Scoped query layer with role-gated PII,
    covered by tests.
-2. **Tool catalog** (`src/agent/tools.ts`) — ⏳ next. Wrap each query as a tool with
-   an LLM-fillable input schema and a `{ rows, display }` return.
-3. **Real model/agent** (`src/agent/provider.ts`) — ⏳ planned. Wire a real provider;
+2. **Tool catalog** (`src/agent/tools.ts`) — ✅ done. Six tools wrap the query layer,
+   each with an LLM-fillable input schema and a `{ rows, display }` return.
+3. **Real model/agent** (`src/agent/provider.ts`) — ⏳ next. Wire a real provider;
    review loop control and tool-error handling.
 4. **Generative UI** (`src/app/page.tsx`) — ⏳ planned. Render `bar`/`line`/`table`
    from the display hint, with streaming and empty/error states.
@@ -36,7 +36,13 @@ Verification steps per layer live in `TESTING.md`.
   `candidatesBySource`, `listJobs`, `applicationsOverTime`, `timeToHire`,
   `listCandidates`) returning plain rows; display hints live at the tool layer, not
   here. All inputs are optional (see Trade-offs).
-- **Tool catalog** — _planned (layer 2)._
+- **Tool catalog** — six thin tools over the query layer
+  (`applicationCountByStage`, `candidatesBySource`, `listJobs`,
+  `applicationsOverTime`, `timeToHire`, `listCandidates`). Inputs are all optional
+  with enums + descriptions so a real model fills them well and the offline mock
+  (empty args) still drives them. `ctx` is threaded in, so tenant/PII guarantees hold
+  at the tool boundary — `src/agent/__tests__/tools.test.ts` proves it by executing
+  the tools directly.
 - **Generative UI** — _planned (layer 4)._
 
 ## Model & agent
