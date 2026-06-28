@@ -16,8 +16,8 @@ Build order and state:
    (free tier) and hardened the loop.
 4. **Generative UI** (`src/app/artifacts.tsx`) — ✅ done. Renders `bar`/`line`/`table`
    from the display hint, with running/empty/error states.
-5. **Evals** (`evals/copilot.eval.ts`) — ⏳ next. Tenant-isolation, permission, and
-   (once a model is wired) answer-quality scorers.
+5. **Evals** (`evals/copilot.eval.ts`) — ✅ done. Tenant-isolation + permission evals
+   (deterministic, on the mock) and a real-model-gated answer-quality eval.
 
 Verification steps per layer live in `TESTING.md`.
 
@@ -76,7 +76,20 @@ Verification steps per layer live in `TESTING.md`.
 - **PII gating** — admin/recruiter rows carry `name/email/phone`; analyst rows do not
   have those keys at all (absent, not blanked).
 
-Agent-level evals (asserting the same through the tool boundary) are planned.
+Agent-level evals (`evals/copilot.eval.ts`) assert the same **through the full agent
+loop**:
+
+- **Tenant isolation** — runs the agent for each workspace on questions that drive
+  id-bearing tools, then checks no returned row carries an id belonging to the *other*
+  workspace (the foreign id set is computed independently via the scoped query layer).
+- **Permissions** — runs the agent as `analyst` on candidate questions and asserts no
+  row carries `name/email/phone`.
+- **Answer quality** — gated to a real model (`AI_PROVIDER != mock`); scores whether
+  the prose is grounded in the returned rows.
+
+These run on the deterministic mock (zero-key, CI-safe). I verified they *catch the
+real thing*: removing the workspace filter drops the suite from 100% → 75% (the
+id-bearing isolation cases fail; aggregate-only cases without ids stay green).
 
 ## Trade-offs & cuts
 

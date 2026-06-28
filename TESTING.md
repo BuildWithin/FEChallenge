@@ -126,12 +126,27 @@ Compile-checked by `pnpm build` (Next 16 / React 19 client bundle) and
 - While a tool runs you see a **shimmer + "running"** chip; on completion the chart
   replaces it ("result"); a failing tool shows the **"error"** chip + message.
 
-## Layer 5 — Agent evals ⏳ (stub only)
+## Layer 5 — Agent evals ✅
 
 **Code:** `evals/copilot.eval.ts`
-**Planned checks:** tenant-isolation eval (no foreign rows in any answer),
-permission eval (`analyst` answers contain no PII), and — once a real model is wired —
-answer-quality scoring.
+
+```bash
+pnpm eval          # deterministic, runs on the mock (no key) — expect 100%
+pnpm eval:dev      # watch + local UI with per-case traces
+```
+
+Through the full agent loop:
+
+- **Tenant isolation** (per workspace) — no returned row carries an id from the other
+  workspace (foreign id set computed via the scoped query layer).
+- **Permissions** — as `analyst`, no row carries `name/email/phone`.
+- **Answer quality** — only registers when `AI_PROVIDER != mock`; checks the prose is
+  grounded in the returned rows. To run it:
+  `AI_PROVIDER=google GOOGLE_GENERATIVE_AI_API_KEY=... pnpm eval`.
+
+**These catch the real thing:** temporarily removing the workspace filter in
+`scopeWhere` drops the suite 100% → 75% (id-bearing isolation cases fail; aggregate
+cases without ids stay green). Restored after verifying.
 
 ---
 

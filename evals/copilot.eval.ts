@@ -5,35 +5,30 @@ import type { UIMessage } from "ai";
 import { db, ensureSchema } from "@/db/client";
 import { workspaces } from "@/db/schema";
 import { seed } from "@/db/seed";
+import { listCandidates, listJobs } from "@/db/analytics";
 import { getModel } from "@/agent/provider";
 import { streamCopilot } from "@/agent/run";
 import type { Row, ToolResult } from "@/agent/artifact";
+import { env } from "@/env";
 
 /**
- * Agent evals with Evalite (https://v1.evalite.dev) — the eval framework the AI
- * SDK docs recommend. (We're on the v1 beta; docs live at the v1 site above.)
+ * Agent evals with Evalite (https://v1.evalite.dev).
  *
  *   pnpm eval        # run once (CI) — `evalite run`
  *   pnpm eval:dev    # watch + a local UI; opens traces for each test case
  *
- * Evalite files are `*.eval.ts`. Each `evalite(name, { data, task, scorers })`
- * runs every `data` item through `task`, then scores the output. Storage is
- * in-memory by default, so this needs zero setup.
- *
- * The model is wrapped with `wrapAISDKModel`, which captures a TRACE for every
- * LLM call (prompt, tool calls, token usage) into the Evalite UI and caches
- * responses across runs. It works against the offline mock today; the day you
- * wire a real model (set AI_PROVIDER), these evals exercise the real agent.
- *
- * Scorers here are deterministic (no model needed). Once you have a real model,
- * add quality scorers too — Evalite ships LLM-as-judge scorers in
- * `evalite/scorers` (e.g. `answerCorrectness`).
+ * The structural evals (tenant isolation, permissions) are DETERMINISTIC and run
+ * against the offline mock, so they pass with zero setup and guard the two hard
+ * requirements on every run. The answer-quality eval only registers when a real
+ * model is wired (AI_PROVIDER != mock), since the mock can't reason.
  */
 type Output = {
   text: string;
   toolNames: string[];
   rows: Row[];
 };
+
+type Role = "admin" | "recruiter" | "analyst";
 
 function userMessage(text: string): UIMessage {
   return { id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text }] };
@@ -49,7 +44,7 @@ async function ensureSeeded() {
 async function runCopilot(
   question: string,
   workspaceId: string,
-  role: "admin" | "recruiter" | "analyst",
+  role: Role,
 ): Promise<Output> {
   const result = await streamCopilot({
     workspaceId,
@@ -69,7 +64,18 @@ async function runCopilot(
   return { text, toolNames, rows };
 }
 
-// --- Scorers (deterministic; no model needed) ------------------------------
+/** Trusted, independently-scoped row ids for a workspace (jobs + candidates). */
+async function workspaceRowIds(workspaceId: string): Promise<string[]> {
+  const ctx = { workspaceId, role: "admin" as const };
+  const [jobs, candidates] = await Promise.all([
+    listJobs(ctx),
+    listCandidates(ctx, { limit: 200 }),
+  ]);
+  return [...jobs.map((j) => j.id), ...candidates.map((c) => c.id)];
+}
+
+// --- Scorers ---------------------------------------------------------------
+
 const usedATool = createScorer<string, Output, undefined>({
   name: "Used a tool",
   description: "The agent answered by calling a tool, not by guessing.",
@@ -82,7 +88,45 @@ const returnedData = createScorer<string, Output, undefined>({
   scorer: ({ output }) => (output.rows.length > 0 ? 1 : 0),
 });
 
-// --- Example eval (passes offline against the mock) ------------------------
+const noPiiForAnalyst = createScorer<string, Output, undefined>({
+  name: "No PII for analyst",
+  description: "No tool result exposes candidate name/email/phone to an analyst.",
+  scorer: ({ output }) => {
+    const leaked = output.rows.some(
+      (r) => "name" in r || "email" in r || "phone" in r,
+    );
+    return leaked ? 0 : 1;
+  },
+});
+
+/** Expected payload for the isolation eval: ids that belong to OTHER workspaces. */
+type Foreign = { foreignIds: string[] };
+
+const noForeignWorkspaceRows = createScorer<string, Output, Foreign>({
+  name: "No cross-tenant rows",
+  description: "No returned row carries an id belonging to another workspace.",
+  scorer: ({ output, expected }) => {
+    const foreign = new Set(expected?.foreignIds ?? []);
+    const values = output.rows.flatMap((r) => Object.values(r)).map(String);
+    return values.some((v) => foreign.has(v)) ? 0 : 1;
+  },
+});
+
+const groundedAnswer = createScorer<string, Output, undefined>({
+  name: "Answer is grounded",
+  description: "The prose references a value from the tool's rows (not invented).",
+  scorer: ({ output }) => {
+    if (output.rows.length === 0) return 0;
+    const text = output.text.toLowerCase();
+    const hit = output.rows
+      .flatMap((r) => Object.values(r))
+      .map((v) => String(v).toLowerCase())
+      .some((v) => v.length > 0 && text.includes(v));
+    return hit ? 1 : 0;
+  },
+});
+
+// --- Example: the copilot calls a tool and grounds its answer ---------------
 evalite<string, Output>("Copilot answers pipeline questions (Brightwave / admin)", {
   data: async () => {
     await ensureSeeded();
@@ -95,17 +139,58 @@ evalite<string, Output>("Copilot answers pipeline questions (Brightwave / admin)
   scorers: [usedATool, returnedData],
 });
 
-// ---------------------------------------------------------------------------
-// TODO(candidate): add the evals that actually de-risk this agent. Suggested:
-//
-//  1. TENANT ISOLATION — for each question, assert no returned row belongs to
-//     another workspace. Compare against trusted scoped data (call your
-//     analytics fns directly with { workspaceId: "brightwave", role: "admin" }).
-//
-//  2. PERMISSIONS — run the copilot as an `analyst` (pass role: "analyst") and
-//     assert no tool result contains candidate PII (name / email / phone).
-//
-//  3. ANSWER QUALITY — with a real model wired, score the agent's prose with an
-//     LLM-as-judge scorer from `evalite/scorers` (e.g. `answerCorrectness`)
-//     against an `expected` answer you add to `data`.
-// ---------------------------------------------------------------------------
+// --- Tenant isolation: no answer leaks another workspace's rows -------------
+function tenantIsolationEval(workspaceId: string, foreignWorkspaceId: string) {
+  evalite<string, Output, Foreign>(
+    `Tenant isolation: ${workspaceId} never returns ${foreignWorkspaceId}'s rows`,
+    {
+      data: async () => {
+        await ensureSeeded();
+        const foreignIds = await workspaceRowIds(foreignWorkspaceId);
+        // Questions chosen to drive id-bearing tools (listJobs / listCandidates),
+        // where a cross-tenant leak would surface as a foreign id in the rows.
+        return [
+          { input: "List the jobs in this workspace.", expected: { foreignIds } },
+          {
+            input: "List individual candidates with their names and emails.",
+            expected: { foreignIds },
+          },
+          { input: "How does my pipeline look by stage?", expected: { foreignIds } },
+        ];
+      },
+      task: (input) => runCopilot(input, workspaceId, "admin"),
+      scorers: [noForeignWorkspaceRows],
+    },
+  );
+}
+
+tenantIsolationEval("brightwave", "meridian");
+tenantIsolationEval("meridian", "brightwave");
+
+// --- Permissions: an analyst never receives candidate PII -------------------
+evalite<string, Output>("Permissions: analyst never receives candidate PII", {
+  data: async () => {
+    await ensureSeeded();
+    return [
+      { input: "List individual candidates with their names and emails." },
+      { input: "Show me the candidates in this workspace." },
+    ];
+  },
+  task: (input) => runCopilot(input, "brightwave", "analyst"),
+  scorers: [usedATool, returnedData, noPiiForAnalyst],
+});
+
+// --- Answer quality: only with a real model wired (mock can't reason) -------
+if (env.AI_PROVIDER !== "mock") {
+  evalite<string, Output>("Answer quality: grounded prose (real model)", {
+    data: async () => {
+      await ensureSeeded();
+      return [
+        { input: "How does my pipeline look by stage?" },
+        { input: "Where are candidates coming from?" },
+      ];
+    },
+    task: (input) => runCopilot(input, "brightwave", "admin"),
+    scorers: [usedATool, returnedData, groundedAnswer],
+  });
+}
