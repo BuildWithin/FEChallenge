@@ -96,10 +96,19 @@ id-bearing isolation cases fail; aggregate-only cases without ids stay green).
 - **Optional-only tool inputs** — the offline mock calls tools with empty args, so
   every query param is optional. Keeps boot/tests deterministic; the cost is the mock
   can't exercise filtered paths (a real model can).
+- **Dependency-free charts** — hand-rolled CSS/SVG instead of a charting library, to
+  avoid React 19 / Next 16 compatibility risk and keep the surface small. The cost is
+  no axes/tooltips/legends beyond what I drew.
+- **Groundedness over LLM-as-judge** — the answer-quality eval checks the prose
+  references real returned values rather than running a full `answerCorrectness`
+  judge. Cheaper and deterministic, but a coarser quality signal.
 - **`fileParallelism: false`** — tests share one file-backed PGlite dir; serializing
   test files avoids two worker processes opening the same DB.
-- **Phased build** — model, tools, UI, and evals are deliberately not started yet;
-  the foundation is finished and verified first.
+
+**With another day:** more tools (per-job drill-down, source→hire conversion), migrate
+the side panel to the chart components, a typed structured final answer from the
+agent, request validation + error handling on `/api/chat`, and a deploy with the DB
+moved off file-backed PGlite.
 
 ## Working with the agent
 
@@ -113,4 +122,4 @@ id-bearing isolation cases fail; aggregate-only cases without ids stay green).
 
 ## Hours
 
-_TBD._
+1.5h
