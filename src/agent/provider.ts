@@ -1,5 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { bedrock } from "@ai-sdk/amazon-bedrock";
 import type { LanguageModel } from "ai";
 
@@ -27,7 +28,7 @@ another workspace's data.`;
  * Returns the language model for the configured provider. Defaults to the
  * offline mock so the repo BOOTS with no keys and tests stay deterministic — but
  * the mock is a stand-in. Build the copilot against a REAL model: set AI_PROVIDER
- * (anthropic/openai/bedrock) with a key, or route through a gateway via
+ * (anthropic/openai/bedrock/google) with a key, or route through a gateway via
  * AI_GATEWAY_BASE_URL (Vercel AI Gateway / Cloudflare AI Gateway). See `.env.example`.
  */
 export function getModel(): LanguageModel {
@@ -70,6 +71,19 @@ export function getModel(): LanguageModel {
         );
       }
       return bedrock(env.BEDROCK_MODEL);
+    }
+
+    case "google": {
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+        throw new Error(
+          "AI_PROVIDER=google but GOOGLE_GENERATIVE_AI_API_KEY is not set. Get a free key at https://aistudio.google.com/apikey, or use AI_PROVIDER=mock.",
+        );
+      }
+      const google = createGoogleGenerativeAI({
+        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+        baseURL,
+      });
+      return google(env.GOOGLE_MODEL);
     }
 
     default: {

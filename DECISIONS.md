@@ -1,45 +1,125 @@
 # Decisions
 
-_Your write-up. Keep it brief — we're reading for trade-offs and reasoning, not
-completeness. Delete these prompts as you fill them in._
-
 ## Overview
 
-What you built and the state it's in. If something is half-done on purpose, say so —
-that's a good answer, not a gap.
+An ATS analytics copilot scoped to one workspace and role at a time. Built
+**bottom-up**, so the two hard requirements (tenant isolation, PII gating) are
+locked in at the lowest layer before anything above can violate them.
+
+Build order and state:
+
+1. **Permissions + query layer** — ✅ done. Scoped query layer with role-gated PII,
+   covered by tests.
+2. **Tool catalog** (`src/agent/tools.ts`) — ✅ done. Six tools wrap the query layer,
+   each with an LLM-fillable input schema and a `{ rows, display }` return.
+3. **Real model/agent** (`src/agent/provider.ts`) — ✅ done. Wired Google Gemini
+   (free tier) and hardened the loop.
+4. **Generative UI** (`src/app/artifacts.tsx`) — ✅ done. Renders `bar`/`line`/`table`
+   from the display hint, with running/empty/error states.
+5. **Evals** (`evals/copilot.eval.ts`) — ✅ done. Tenant-isolation + permission evals
+   (deterministic, on the mock) and a real-model-gated answer-quality eval.
+
+Verification steps per layer live in `TESTING.md`.
 
 ## Architecture & key decisions
 
-- **Tool catalog** — which tools you added, their granularity, and how you shaped
-  their inputs for a model to drive.
-- **Query layer** — how it's structured and composed.
-- **Tenant scoping** — how you made it impossible to forget as the layer grows.
-- **Permissions** — how you enforce the PII rule by role.
-- **Generative UI** — how tool results become streaming components.
+- **Tenant scoping** — every query goes through one `scopeWhere` helper that AND-s in
+  the workspace filter, and `ctx` is the **first argument** of every query function,
+  so a query can't even be expressed without its tenant scope. This is the "can't
+  forget it" property as the layer grows.
+- **Permissions (PII)** — enforced in the query layer, not after the fact. A single
+  `candidateColumns(role)` selector adds the PII columns (name/email/phone) to the
+  projection **only** when the role permits. For an `analyst` the executed SQL never
+  references those columns, so a leak is *unrepresentable* rather than filtered.
+  `src/db/permissions.ts` holds the policy (`canReadPII`); the query layer enforces it.
+- **Query layer** — small composable functions (`applicationCountByStage`,
+  `candidatesBySource`, `listJobs`, `applicationsOverTime`, `timeToHire`,
+  `listCandidates`) returning plain rows; display hints live at the tool layer, not
+  here. All inputs are optional (see Trade-offs).
+- **Tool catalog** — six thin tools over the query layer
+  (`applicationCountByStage`, `candidatesBySource`, `listJobs`,
+  `applicationsOverTime`, `timeToHire`, `listCandidates`). Inputs are all optional
+  with enums + descriptions so a real model fills them well and the offline mock
+  (empty args) still drives them. `ctx` is threaded in, so tenant/PII guarantees hold
+  at the tool boundary — `src/agent/__tests__/tools.test.ts` proves it by executing
+  the tools directly.
+- **Generative UI** — `src/app/artifacts.tsx` turns each tool result into a component
+  from its `display` hint: a CSS bar chart, an SVG line chart, or a table (PII-aware
+  columns come straight from the tool). Dependency-free on purpose — no charting lib
+  to fight React 19 / Next 16, and the surface stays small and predictable. `page.tsx`
+  shows a per-tool status chip (running → result/error) with a shimmer while the tool
+  runs and the chart streaming in on completion.
 
 ## Model & agent
 
-Which provider or gateway you wired (Vercel AI Gateway / Cloudflare AI Gateway /
-direct keys / Bedrock), and **why**. Anything notable about the loop — multi-step
-control, tool-error handling, stop strategy, structured output.
+- **Provider — Google Gemini (`gemini-2.5-flash`), free tier.** Chosen because it
+  needs no billing to run (free key from Google AI Studio), is fast, and tool-calls
+  well — so a reviewer can run the real agent with zero cost. Added as a `google`
+  case in `src/agent/provider.ts` alongside anthropic/openai/bedrock; the same
+  `baseURL` gateway passthrough applies. Switching providers is a one-line env
+  change, and `gemini-2.5-pro` (paid) is a drop-in upgrade via `GOOGLE_MODEL`.
+- **Mock stays the default.** No key needed to boot or to run tests/evals; only a
+  real `AI_PROVIDER` flips to the live model. Tests force `mock` for determinism.
+- **Loop control** (`src/agent/run.ts`): `temperature: 0` for reproducible analytics;
+  `stopWhen: stepCountIs(6)` to bound the orient→query→answer loop (the model also
+  stops naturally on a tool-free closing message); `onError` logs stream-level
+  failures. A throwing tool surfaces as a tool-error part the model can recover from
+  and the UI renders, rather than killing the stream.
 
 ## Benchmarks
 
-What your tenant-isolation and permission checks actually assert, and how you know
-they catch the real thing.
+`src/db/__tests__/analytics.test.ts` asserts the two hard requirements directly:
+
+- **Tenant isolation** — candidate/job rows are prefixed `bw-` vs `mer-`, the two ID
+  sets are disjoint, and grouped aggregate totals equal the row-level count for the
+  *same* workspace (counts aren't global).
+- **PII gating** — admin/recruiter rows carry `name/email/phone`; analyst rows do not
+  have those keys at all (absent, not blanked).
+
+Agent-level evals (`evals/copilot.eval.ts`) assert the same **through the full agent
+loop**:
+
+- **Tenant isolation** — runs the agent for each workspace on questions that drive
+  id-bearing tools, then checks no returned row carries an id belonging to the *other*
+  workspace (the foreign id set is computed independently via the scoped query layer).
+- **Permissions** — runs the agent as `analyst` on candidate questions and asserts no
+  row carries `name/email/phone`.
+- **Answer quality** — gated to a real model (`AI_PROVIDER != mock`); scores whether
+  the prose is grounded in the returned rows.
+
+These run on the deterministic mock (zero-key, CI-safe). I verified they *catch the
+real thing*: removing the workspace filter drops the suite from 100% → 75% (the
+id-bearing isolation cases fail; aggregate-only cases without ids stay green).
 
 ## Trade-offs & cuts
 
-What you deliberately left out and why. What you'd do with another day.
+- **Optional-only tool inputs** — the offline mock calls tools with empty args, so
+  every query param is optional. Keeps boot/tests deterministic; the cost is the mock
+  can't exercise filtered paths (a real model can).
+- **Dependency-free charts** — hand-rolled CSS/SVG instead of a charting library, to
+  avoid React 19 / Next 16 compatibility risk and keep the surface small. The cost is
+  no axes/tooltips/legends beyond what I drew.
+- **Groundedness over LLM-as-judge** — the answer-quality eval checks the prose
+  references real returned values rather than running a full `answerCorrectness`
+  judge. Cheaper and deterministic, but a coarser quality signal.
+- **`fileParallelism: false`** — tests share one file-backed PGlite dir; serializing
+  test files avoids two worker processes opening the same DB.
+
+**With another day:** more tools (per-job drill-down, source→hire conversion), migrate
+the side panel to the chart components, a typed structured final answer from the
+agent, request validation + error handling on `/api/chat`, and a deploy with the DB
+moved off file-backed PGlite.
 
 ## Working with the agent
 
-Using AI tools is encouraged. Briefly:
-
-- What you delegated.
-- Where the agent was wrong and you caught it.
-- What you'd never let it decide on its own.
+- **Delegated:** the scoped query layer, the PII chokepoint design, and the test
+  harness.
+- **Caught:** a PGlite/Drizzle bug where a parameterized `date_trunc` bucket produced
+  mismatched binds across SELECT/GROUP BY — fixed by whitelisting and inlining the
+  bucket as raw text.
+- **Never delegate unsupervised:** the tenant/PII enforcement strategy and commit
+  messages — reviewed before they land.
 
 ## Hours
 
-Roughly how long you spent.
+1.5h

@@ -4,12 +4,11 @@
  * The copilot serves users with different roles. Some columns are PII and must
  * not be readable by every role.
  *
- * TODO(candidate): PII permissions are DEFINED here but NOT yet ENFORCED.
- * An `analyst` should never be able to read PII columns (candidate
- * name/email/phone); `recruiter` and `admin` may. Wire enforcement into the
- * query layer (src/db/analytics.ts) so it cannot be skipped — ideally make a
- * PII-leaking query for the wrong role *unrepresentable*, not merely rejected
- * after the fact. Then prove it with an eval.
+ * Enforcement does NOT live here — it lives in the query layer
+ * (`src/db/analytics.ts`), which routes every candidate read through a single
+ * role-aware column selector. PII columns are added to the projection only when
+ * the role permits, so for an `analyst` the executed SQL never references them.
+ * This module supplies the policy those chokepoints consult.
  */
 
 export const ROLES = ["admin", "recruiter", "analyst"] as const;
@@ -28,11 +27,19 @@ export const PII_COLUMNS: Record<string, readonly string[]> = {
 };
 
 /**
- * Whether `role` may read `table.column`.
+ * Whether `role` may read candidate PII (name / email / phone).
  *
- * TODO(candidate): implement real enforcement. Right now this is permissive —
- * every role can read everything, including PII. That's the gap to close.
+ * The single source of truth for the PII rule. `admin` and `recruiter` may;
+ * `analyst` may not. The query layer consults this when building candidate
+ * projections — see `candidateColumns` in `src/db/analytics.ts`.
  */
-export function canReadColumn(_role: Role, _table: string, _column: string): boolean {
+export function canReadPII(role: Role): boolean {
+  return role === "admin" || role === "recruiter";
+}
+
+/** Whether `role` may read `table.column`. PII columns defer to `canReadPII`. */
+export function canReadColumn(role: Role, table: string, column: string): boolean {
+  const pii = PII_COLUMNS[table];
+  if (pii?.includes(column)) return canReadPII(role);
   return true;
 }

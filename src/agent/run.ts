@@ -34,14 +34,22 @@ export async function streamCopilot({
 }) {
   await ensureSchema();
 
-  // This is a minimal loop: one model, the tools, capped at 6 steps. Owning the
-  // loop is part of the exercise — consider tool-error handling, your stop
-  // strategy, and whether the agent should emit a typed structured answer.
   return streamText({
     model,
     system: SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
     tools: buildTools({ workspaceId, role }),
+    // Stop strategy: orient -> query -> answer rarely needs many hops, so cap at
+    // 6 steps to bound cost/latency. The model also stops naturally on a
+    // tool-free closing message before reaching the cap.
     stopWhen: stepCountIs(6),
+    // Analytics answers should be reproducible, not creative — keep it cold.
+    temperature: 0,
+    // A throwing tool surfaces as a tool-error part (the model can retry or
+    // explain it; the UI renders it via the "output-error" state). onError
+    // catches stream-level failures so they're logged, not silently swallowed.
+    onError: ({ error }) => {
+      console.error("[copilot] stream error:", error);
+    },
   });
 }

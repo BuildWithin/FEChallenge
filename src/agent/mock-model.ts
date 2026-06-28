@@ -7,6 +7,8 @@ import type {
   LanguageModelV3StreamPart,
 } from "@ai-sdk/provider";
 
+import type { CellValue } from "./artifact";
+
 /**
  * Deterministic, offline mock language model (provider interface v3 — matches
  * the installed `ai` / `@ai-sdk/provider` versions). It drives a REAL
@@ -108,7 +110,7 @@ function textParts(id: string, text: string): LanguageModelV3StreamPart[] {
 
 function toolCall(
   toolName: string,
-  input: Record<string, unknown>,
+  input: Record<string, CellValue>,
 ): LanguageModelV3StreamPart {
   return {
     type: "tool-call",
