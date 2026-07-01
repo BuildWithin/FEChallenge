@@ -22,6 +22,16 @@ import { applications } from "./schema";
  * The benchmark in `evals/run.ts` verifies both against whatever tools you build.
  */
 
+/**
+ * INVARIANTS for every function in this file (keep the layer safe as it grows):
+ *  1. `ctx: AnalyticsCtx` is the FIRST parameter — a query can't be written
+ *     without its tenant scope.
+ *  2. The `.where(...)` clause goes through `scopeWhere(table, ctx, extra)` — the
+ *     one place the workspace filter is applied, so it can't be forgotten.
+ *  3. Any candidate read selects columns via `candidateColumns(ctx.role)` so PII
+ *     is gated by construction (see src/db/permissions.ts).
+ */
+
 export type AnalyticsCtx = { workspaceId: string; role: Role };
 
 /** The one place tenant scoping lives: AND-s the workspace filter into a query. */
