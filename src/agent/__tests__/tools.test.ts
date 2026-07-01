@@ -46,9 +46,17 @@ describe("buildTools", () => {
     expect(out.rows.length).toBeGreaterThan(0);
     expect(out.display.kind).toBe("table");
     if (out.display.kind === "table") {
-      expect(out.display.columns).not.toContain("name");
-      expect(out.display.columns).not.toContain("email");
-      expect(out.display.columns).not.toContain("phone");
+      expect(out.display.columns).toEqual([]);
     }
+    expect(out.rows[0]).not.toHaveProperty("name");
+  });
+
+  test("listCandidates table columns are name, email, phone for admin", async () => {
+    const tools = buildTools({ workspaceId: "brightwave", role: "admin" });
+    const out = await runToolExecute(tools.listCandidates.execute!);
+    if (out.display.kind === "table") {
+      expect(out.display.columns).toEqual(["name", "email", "phone"]);
+    }
+    expect(out.rows[0]).toHaveProperty("name");
   });
 });

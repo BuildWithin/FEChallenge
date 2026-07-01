@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { ROLES } from "@/db/permissions";
+import type { Display, Row } from "@/agent/artifact";
 import {
   getActiveRole,
   getActiveWorkspace,
@@ -104,16 +105,33 @@ export default function Page() {
             </p>
           )}
 
-          {messages.map((message) => (
+          {messages.map((message) => {
+            const parts = messageParts(message.parts);
+            const tableOnlyResponse =
+              message.role === "assistant" && messageShowsDataTable(parts);
+            const analystCandidateList =
+              message.role === "assistant" && messageIsAnalystCandidateList(parts);
+            const chartOnlyAnalyst =
+              message.role === "assistant" &&
+              role === "analyst" &&
+              messageShowsChart(parts);
+
+            return (
             <div key={message.id} className="space-y-2">
               <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
                 {message.role}
               </div>
               {message.parts.map((part, i) => {
                 if (part.type === "text") {
+                  if (tableOnlyResponse || analystCandidateList || chartOnlyAnalyst) {
+                    return null;
+                  }
                   return (
                     <AssistantMessage key={i} text={part.text} role={message.role} />
                   );
+                }
+                if (part.type === "tool-listCandidates" && analystCandidateList) {
+                  return <AnalystCandidateAccessNotice key={i} />;
                 }
                 if (part.type.startsWith("tool-")) {
                   return <ToolCall key={i} part={part} />;
@@ -121,7 +139,8 @@ export default function Page() {
                 return null;
               })}
             </div>
-          ))}
+            );
+          })}
 
           {busy && <p className="text-xs text-gray-400">Copilot is working&hellip;</p>}
         </div>
@@ -296,28 +315,99 @@ function parseMessageBlocks(text: string): ReactNode[] {
 }
 
 // ---------------------------------------------------------------------------
-// Tool-call rendering — loading/error only. Successful tool results ground the
-// agent's answer but are not shown as raw DB tables; users see the assistant
-// prose only. Phase 4 adds generative charts for analytics (bar/line), not row
-// dumps with internal ids.
+// Tool-call rendering — display-driven charts/tables with loading/empty/error.
 // ---------------------------------------------------------------------------
+const INTERNAL_COLUMNS = new Set(["id", "workspaceId"]);
+
+type MessagePartLike = {
+  type: string;
+  state?: string;
+  output?: { rows?: Row[]; display?: Display };
+};
+
+function messageParts(parts: ReadonlyArray<{ type: string; state?: string; output?: unknown }>): MessagePartLike[] {
+  return parts as MessagePartLike[];
+}
+
+/** Any visible table (candidates, open jobs, etc.) — prose would duplicate it. */
+function messageShowsDataTable(parts: ReadonlyArray<MessagePartLike>): boolean {
+  return parts.some((part) => {
+    if (!part.type.startsWith("tool-")) return false;
+    return (
+      part.state === "output-available" &&
+      part.output?.display?.kind === "table" &&
+      (part.output.display.columns?.length ?? 0) > 0 &&
+      (part.output?.rows?.length ?? 0) > 0
+    );
+  });
+}
+
+/** Analyst aggregate answers use bar/line charts — prose would duplicate them. */
+function messageShowsChart(parts: ReadonlyArray<MessagePartLike>): boolean {
+  return parts.some((part) => {
+    if (!part.type.startsWith("tool-")) return false;
+    const kind = part.output?.display?.kind;
+    return (
+      part.state === "output-available" &&
+      (kind === "bar" || kind === "line") &&
+      (part.output?.rows?.length ?? 0) > 0
+    );
+  });
+}
+
+/** Analyst listCandidates has no visible table — show a permission notice instead. */
+function messageIsAnalystCandidateList(parts: ReadonlyArray<MessagePartLike>): boolean {
+  return parts.some((part) => {
+    if (part.type !== "tool-listCandidates") return false;
+    return (
+      part.state === "output-available" &&
+      part.output?.display?.kind === "table" &&
+      (part.output.display.columns?.length ?? 0) === 0 &&
+      (part.output?.rows?.length ?? 0) > 0
+    );
+  });
+}
+
+function AnalystCandidateAccessNotice() {
+  return (
+    <div className="rounded-md bg-gray-50 px-3 py-2 text-sm leading-relaxed text-gray-800">
+      <p>
+        Your role (<strong>analyst</strong>) doesn&apos;t include access to individual
+        candidates or contact details.
+      </p>
+      <p className="mt-2 text-gray-600">
+        Try aggregate questions instead, such as &ldquo;Where are candidates coming
+        from?&rdquo; or &ldquo;How does my pipeline look by stage?&rdquo;
+      </p>
+    </div>
+  );
+}
+
 type ToolPart = {
   type: string;
   state?: string;
+  input?: unknown;
+  output?: { rows?: Row[]; display?: Display };
   errorText?: string;
 };
 
 function ToolCall({ part }: { part: unknown }) {
   const p = part as ToolPart;
+  const done = p.state === "output-available";
   const errored = p.state === "output-error";
-  const pending = p.state !== "output-available" && !errored;
+  const pending = !done && !errored;
+
+  const proseOnlyResult =
+    done &&
+    p.output?.display?.kind === "table" &&
+    p.output.display.columns.length === 0;
+
+  if (proseOnlyResult) return null;
 
   if (errored) {
-    const name = p.type.replace(/^tool-/, "");
     return (
       <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
-        <span className="font-medium">{name}</span> failed
-        {p.errorText ? `: ${p.errorText}` : "."}
+        {p.errorText ?? "Something went wrong loading this data."}
       </div>
     );
   }
@@ -326,5 +416,267 @@ function ToolCall({ part }: { part: unknown }) {
     return <p className="text-xs text-gray-400">Looking up data…</p>;
   }
 
-  return null;
+  return (
+    <div className="rounded-md bg-gray-50 px-3 py-2 text-sm">
+      <ToolResult output={p.output} />
+    </div>
+  );
+}
+
+function ToolResult({ output }: { output?: { rows?: Row[]; display?: Display } }) {
+  const rows = output?.rows ?? [];
+  const display = output?.display;
+
+  if (display?.kind === "table" && display.columns.length === 0) {
+    return null;
+  }
+
+  if (rows.length === 0) {
+    return <p className="mt-1 text-gray-400">No rows.</p>;
+  }
+
+  switch (display?.kind) {
+    case "bar":
+      return (
+        <BarChart rows={rows} x={display.x} y={display.y} title={display.title} />
+      );
+    case "line":
+      return (
+        <LineChart rows={rows} x={display.x} y={display.y} title={display.title} />
+      );
+    case "table":
+    default: {
+      const columns =
+        display?.kind === "table"
+          ? display.columns
+          : Object.keys(rows[0] ?? {});
+      return <TableView rows={rows} columns={columns} />;
+    }
+  }
+}
+
+function TableView({ rows, columns }: { rows: Row[]; columns: string[] }) {
+  const visible = columns.filter((c) => !INTERNAL_COLUMNS.has(c));
+  if (visible.length === 0) {
+    return <p className="mt-1 text-gray-400">No rows.</p>;
+  }
+
+  return (
+    <table className="w-full border-collapse text-left text-xs">
+      <thead>
+        <tr className="text-gray-400">
+          {visible.map((c) => (
+            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
+              {formatLabel(c)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.slice(0, 8).map((row, i) => (
+          <tr key={i} className="text-gray-600">
+            {visible.map((c) => (
+              <td key={c} className="border-b border-gray-50 py-1 pr-2">
+                {formatCell(row[c])}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function BarChart({
+  rows,
+  x,
+  y,
+  title,
+}: {
+  rows: Row[];
+  x: string;
+  y: string;
+  title: string;
+}) {
+  const data = rows.map((r) => ({
+    label: formatLabel(String(r[x] ?? "")),
+    value: Number(r[y] ?? 0),
+  }));
+  const max = Math.max(1, ...data.map((d) => d.value));
+
+  return (
+    <figure>
+      <figcaption className="mb-1 text-xs font-medium text-gray-600">{title}</figcaption>
+      <div className="space-y-1">
+        {data.map((d) => (
+          <div key={d.label} className="flex items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 truncate text-gray-500" title={d.label}>
+              {d.label}
+            </span>
+            <div className="h-3 min-w-0 flex-1 rounded bg-gray-100">
+              <div
+                className="h-3 rounded bg-gray-800 transition-all"
+                style={{ width: `${(d.value / max) * 100}%` }}
+              />
+            </div>
+            <span className="w-10 shrink-0 text-right tabular-nums text-gray-600">
+              {formatNumber(d.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </figure>
+  );
+}
+
+function LineChart({
+  rows,
+  x,
+  y,
+  title,
+}: {
+  rows: Row[];
+  x: string;
+  y: string;
+  title: string;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  const data = rows.map((r) => ({
+    label: String(r[x] ?? ""),
+    value: Number(r[y] ?? 0),
+  }));
+  const max = Math.max(1, ...data.map((d) => d.value));
+
+  const W = 320;
+  const H = 140;
+  const plotLeft = 32;
+  const plotRight = 8;
+  const plotTop = 20;
+  const plotBottom = 28;
+  const plotW = W - plotLeft - plotRight;
+  const plotH = H - plotTop - plotBottom;
+
+  const points = data.map((d, i) => {
+    const px = plotLeft + (i * plotW) / Math.max(1, data.length - 1);
+    const py = plotTop + plotH - (d.value / max) * plotH;
+    return { ...d, px, py };
+  });
+
+  const yTicks = [0, Math.round(max / 2), max].filter(
+    (v, i, arr) => i === 0 || v !== arr[i - 1],
+  );
+
+  const xLabelEvery = data.length <= 6 ? 1 : Math.ceil(data.length / 5);
+
+  return (
+    <figure>
+      <figcaption className="mb-1 text-xs font-medium text-gray-600">{title}</figcaption>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full text-gray-800"
+        role="img"
+        aria-label={`${title}: ${data.map((d) => `${formatPeriodLabel(d.label)} ${formatNumber(d.value)}`).join(", ")}`}
+        onMouseLeave={() => setHovered(null)}
+      >
+        {yTicks.map((tick) => {
+          const ty = plotTop + plotH - (tick / max) * plotH;
+          return (
+            <g key={tick} className="text-gray-300">
+              <line
+                x1={plotLeft}
+                y1={ty}
+                x2={W - plotRight}
+                y2={ty}
+                stroke="currentColor"
+                strokeWidth="0.5"
+              />
+              <text
+                x={plotLeft - 4}
+                y={ty + 3}
+                textAnchor="end"
+                className="fill-gray-400 text-[9px]"
+              >
+                {formatNumber(tick)}
+              </text>
+            </g>
+          );
+        })}
+
+        <polyline
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          points={points.map((p) => `${p.px},${p.py}`).join(" ")}
+        />
+
+        {points.map((p, i) => (
+          <g
+            key={i}
+            className="cursor-pointer"
+            onMouseEnter={() => setHovered(i)}
+            onFocus={() => setHovered(i)}
+            onBlur={() => setHovered(null)}
+            tabIndex={0}
+          >
+            <title>
+              {formatPeriodLabel(p.label)}: {formatNumber(p.value)}
+            </title>
+            <circle cx={p.px} cy={p.py} r="10" fill="transparent" />
+            <circle
+              cx={p.px}
+              cy={p.py}
+              r={hovered === i ? 4 : 3}
+              fill="currentColor"
+              className="transition-[r]"
+            />
+            {hovered === i && (
+              <text
+                x={p.px}
+                y={p.py - 8}
+                textAnchor="middle"
+                className="fill-gray-700 text-[9px] font-medium pointer-events-none"
+              >
+                {formatNumber(p.value)}
+              </text>
+            )}
+            {(i % xLabelEvery === 0 || i === data.length - 1) && (
+              <text
+                x={p.px}
+                y={H - 6}
+                textAnchor="middle"
+                className="fill-gray-400 text-[8px] pointer-events-none"
+              >
+                {formatPeriodLabel(p.label)}
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+    </figure>
+  );
+}
+
+/** Shorten ISO period buckets for chart axis labels. */
+function formatPeriodLabel(raw: string): string {
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return raw.length > 8 ? `${raw.slice(0, 8)}…` : raw;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const mon = months[parseInt(m[2], 10) - 1] ?? m[2];
+  const day = parseInt(m[3], 10);
+  return day === 1 ? mon : `${mon} ${day}`;
+}
+
+function formatLabel(raw: string): string {
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatCell(value: unknown): string {
+  if (value == null) return "";
+  if (value instanceof Date) return value.toLocaleDateString();
+  return String(value);
+}
+
+function formatNumber(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }

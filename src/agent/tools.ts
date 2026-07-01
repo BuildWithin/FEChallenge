@@ -123,8 +123,14 @@ export function buildTools(ctx: AnalyticsCtx) {
       }),
       async execute({ source, limit }) {
         const rows = await listCandidates(ctx, { source, limit });
-        const columns = Object.keys(rows[0] ?? { id: null });
-        return result(rows, { kind: "table", columns });
+        if (ctx.role === "analyst") {
+          // Analyst rows have no PII — prose only; no source/createdAt table in chat.
+          return result(rows, { kind: "table", columns: [] });
+        }
+        return result(rows, {
+          kind: "table",
+          columns: ["name", "email", "phone"],
+        });
       },
     }),
   };
