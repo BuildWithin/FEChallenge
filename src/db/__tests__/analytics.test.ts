@@ -1,7 +1,15 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { eq } from "drizzle-orm";
 
-import { applicationCountByStage } from "@/db/analytics";
+import {
+  applicationCountByStage,
+  applicationsOverTime,
+  candidatesBySource,
+  jobsByStatus,
+  listCandidates,
+  openJobs,
+  timeInFunnelByStage,
+} from "@/db/analytics";
 import { db, ensureSchema } from "@/db/client";
 import { candidateColumns } from "@/db/permissions";
 import { candidates, workspaces } from "@/db/schema";
@@ -74,5 +82,56 @@ describe("PII gating by role", () => {
     if ("name" in row) {
       expect(String(row.name).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("analytics query catalog", () => {
+  const ctx = { workspaceId: "brightwave", role: "admin" as const };
+
+  test("candidatesBySource returns grouped counts", async () => {
+    const rows = await candidatesBySource(ctx);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => typeof r.source === "string" && Number(r.count) > 0)).toBe(
+      true,
+    );
+  });
+
+  test("applicationsOverTime returns time series with default week bucket", async () => {
+    const rows = await applicationsOverTime(ctx);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => typeof r.period === "string" && Number(r.count) > 0)).toBe(
+      true,
+    );
+  });
+
+  test("jobsByStatus returns status breakdown", async () => {
+    const rows = await jobsByStatus(ctx);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.some((r) => r.status === "open")).toBe(true);
+  });
+
+  test("openJobs returns only open positions", async () => {
+    const rows = await openJobs(ctx);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.title && r.department && r.location)).toBe(true);
+  });
+
+  test("timeInFunnelByStage returns avg days per stage", async () => {
+    const rows = await timeInFunnelByStage(ctx);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.stage && Number(r.avgDays) >= 0)).toBe(true);
+  });
+
+  test("listCandidates respects role column set", async () => {
+    const adminRows = await listCandidates({ workspaceId: "brightwave", role: "admin" });
+    const analystRows = await listCandidates({
+      workspaceId: "brightwave",
+      role: "analyst",
+    });
+
+    expect(adminRows.length).toBeGreaterThan(0);
+    expect(analystRows.length).toBeGreaterThan(0);
+    expect(adminRows[0]).toHaveProperty("name");
+    expect(analystRows[0]).not.toHaveProperty("name");
   });
 });

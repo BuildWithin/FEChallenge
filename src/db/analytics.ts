@@ -1,8 +1,9 @@
-import { and, count, desc, eq, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { db } from "./client";
+import { candidateColumns } from "./permissions";
 import type { Role } from "./permissions";
-import { applications } from "./schema";
+import { applications, candidates, jobs } from "./schema";
 
 /**
  * Scoped analytics data layer for the copilot.
@@ -65,4 +66,81 @@ export async function applicationCountByStage(
     .where(scopeWhere(applications, ctx, extra))
     .groupBy(applications.stage)
     .orderBy(desc(count()));
+}
+
+/** Count candidates grouped by acquisition source, scoped to the workspace. */
+export async function candidatesBySource(ctx: AnalyticsCtx) {
+  return db
+    .select({ source: candidates.source, count: count() })
+    .from(candidates)
+    .where(scopeWhere(candidates, ctx))
+    .groupBy(candidates.source)
+    .orderBy(desc(count()));
+}
+
+/** Applications over time, bucketed by week (default) or month. */
+export async function applicationsOverTime(
+  ctx: AnalyticsCtx,
+  opts: { bucket?: "week" | "month" } = {},
+) {
+  const bucket = opts.bucket ?? "week";
+  const period =
+    bucket === "month"
+      ? sql<string>`to_char(date_trunc('month', ${applications.appliedAt}), 'YYYY-MM-DD')`
+      : sql<string>`to_char(date_trunc('week', ${applications.appliedAt}), 'YYYY-MM-DD')`;
+  return db
+    .select({ period, count: count() })
+    .from(applications)
+    .where(scopeWhere(applications, ctx))
+    .groupBy(period)
+    .orderBy(period);
+}
+
+/** Count jobs grouped by status (open/closed/draft), scoped. */
+export async function jobsByStatus(ctx: AnalyticsCtx) {
+  return db
+    .select({ status: jobs.status, count: count() })
+    .from(jobs)
+    .where(scopeWhere(jobs, ctx))
+    .groupBy(jobs.status)
+    .orderBy(desc(count()));
+}
+
+/** List open jobs (title/department/location), scoped. */
+export async function openJobs(ctx: AnalyticsCtx) {
+  return db
+    .select({
+      id: jobs.id,
+      title: jobs.title,
+      department: jobs.department,
+      location: jobs.location,
+    })
+    .from(jobs)
+    .where(scopeWhere(jobs, ctx, [eq(jobs.status, "open")]))
+    .orderBy(jobs.title);
+}
+
+/** Avg days from applied → last update, grouped by current stage. */
+export async function timeInFunnelByStage(ctx: AnalyticsCtx) {
+  const avgDays = sql<number>`avg(extract(epoch from (${applications.updatedAt} - ${applications.appliedAt})) / 86400)`;
+  return db
+    .select({ stage: applications.stage, avgDays })
+    .from(applications)
+    .where(scopeWhere(applications, ctx))
+    .groupBy(applications.stage)
+    .orderBy(desc(avgDays));
+}
+
+/** List candidates, scoped. Columns depend on role (analyst omits PII). */
+export async function listCandidates(
+  ctx: AnalyticsCtx,
+  opts: { source?: string; limit?: number } = {},
+) {
+  const extra = opts.source ? [eq(candidates.source, opts.source)] : [];
+  return db
+    .select(candidateColumns(ctx.role))
+    .from(candidates)
+    .where(scopeWhere(candidates, ctx, extra))
+    .orderBy(candidates.createdAt)
+    .limit(opts.limit ?? 25);
 }
