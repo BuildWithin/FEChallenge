@@ -134,4 +134,21 @@ describe("analytics query catalog", () => {
     expect(adminRows[0]).toHaveProperty("name");
     expect(analystRows[0]).not.toHaveProperty("name");
   });
+
+  test("listCandidates normalizes source filter and ignores invalid sources", async () => {
+    const meridian = await listCandidates({ workspaceId: "meridian", role: "admin" });
+    expect(meridian.length).toBeGreaterThan(0);
+
+    const caseInsensitive = await listCandidates(
+      { workspaceId: "meridian", role: "admin" },
+      { source: "LinkedIn" },
+    );
+    expect(caseInsensitive.length).toBeGreaterThan(0);
+
+    const badSourceIgnored = await listCandidates(
+      { workspaceId: "meridian", role: "admin" },
+      { source: "engineering" },
+    );
+    expect(badSourceIgnored.length).toBe(meridian.length);
+  });
 });

@@ -116,7 +116,7 @@ export function buildTools(ctx: AnalyticsCtx) {
 
     listCandidates: tool({
       description:
-        "List candidates in this workspace. Contact details (name/email/phone) are only returned for roles permitted to see them; analysts get anonymized rows.",
+        "List candidates in this workspace, newest first. Use limit for 'top N' requests. Only pass source when the user names a channel (referral, linkedin, job_board, agency, careers_site). Contact details are role-gated.",
       inputSchema: z.object({
         source: z.string().optional(),
         limit: z.number().int().positive().max(100).optional(),
