@@ -3,10 +3,9 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { ROLES } from "@/db/permissions";
-import type { Display, Row } from "@/agent/artifact";
 import {
   getActiveRole,
   getActiveWorkspace,
@@ -113,12 +112,7 @@ export default function Page() {
               {message.parts.map((part, i) => {
                 if (part.type === "text") {
                   return (
-                    <p
-                      key={i}
-                      className="whitespace-pre-wrap rounded-md bg-gray-50 px-3 py-2 text-sm"
-                    >
-                      {part.text}
-                    </p>
+                    <AssistantMessage key={i} text={part.text} role={message.role} />
                   );
                 }
                 if (part.type.startsWith("tool-")) {
@@ -174,75 +168,163 @@ export default function Page() {
   );
 }
 
+/** Render assistant/user text with light markdown (lists, bold). */
+function AssistantMessage({ text, role }: { text: string; role: string }) {
+  const blocks = parseMessageBlocks(text);
+
+  return (
+    <div
+      className={`space-y-2 rounded-md px-3 py-2 text-sm leading-relaxed ${
+        role === "user" ? "bg-gray-100 text-gray-900" : "bg-gray-50 text-gray-800"
+      }`}
+    >
+      {blocks}
+    </div>
+  );
+}
+
+/** Inline **bold** only — no full markdown parser. */
+function formatInline(text: string): ReactNode {
+  const parts: ReactNode[] = [];
+  const re = /\*\*(.+?)\*\*/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    parts.push(<strong key={key++}>{match[1]}</strong>);
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length === 1 ? parts[0] : <>{parts}</>;
+}
+
+function stripListMarker(line: string): string {
+  return line.replace(/^\d+\.\s+/, "").replace(/^[-*]\s+/, "");
+}
+
+/** Model sometimes emits "- a - b - c" on one line; split into separate items. */
+function expandInlineBullets(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("- ") || !/\s+-\s+/.test(trimmed)) {
+    return [trimmed];
+  }
+  return trimmed.split(/\s+-\s+/).map((part, i) => (i === 0 ? part.trim() : `- ${part.trim()}`));
+}
+
+function parseMessageBlocks(text: string): ReactNode[] {
+  const lines = text.split(/\n/);
+  const elements: ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) {
+      i++;
+      continue;
+    }
+
+    const expanded = expandInlineBullets(line);
+    const first = expanded[0];
+
+    if (/^\d+\.\s/.test(first)) {
+      const items: string[] = [];
+      for (const item of expanded) {
+        items.push(stripListMarker(item));
+      }
+      i++;
+      while (i < lines.length) {
+        const next = lines[i].trim();
+        if (!next) break;
+        if (/^\d+\.\s/.test(next)) {
+          for (const item of expandInlineBullets(next)) {
+            if (/^\d+\.\s/.test(item)) items.push(stripListMarker(item));
+          }
+          i++;
+        } else break;
+      }
+      elements.push(
+        <ol key={key++} className="list-decimal space-y-1.5 pl-5">
+          {items.map((item, j) => (
+            <li key={j}>{formatInline(item)}</li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    if (/^[-*]\s/.test(first)) {
+      const items: string[] = [];
+      for (const item of expanded) {
+        items.push(stripListMarker(item));
+      }
+      i++;
+      while (i < lines.length) {
+        const next = lines[i].trim();
+        if (!next) break;
+        if (/^[-*]\s/.test(next) || expandInlineBullets(next).some((p) => /^[-*]\s/.test(p))) {
+          for (const item of expandInlineBullets(next)) {
+            if (/^[-*]\s/.test(item)) items.push(stripListMarker(item));
+          }
+          i++;
+        } else break;
+      }
+      elements.push(
+        <ul key={key++} className="list-disc space-y-1.5 pl-5">
+          {items.map((item, j) => (
+            <li key={j}>{formatInline(item)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    const paraLines: string[] = [];
+    while (i < lines.length) {
+      const l = lines[i].trim();
+      if (!l) break;
+      if (/^\d+\.\s/.test(l) || /^[-*]\s/.test(l)) break;
+      paraLines.push(l);
+      i++;
+    }
+    elements.push(<p key={key++}>{formatInline(paraLines.join(" "))}</p>);
+  }
+
+  return elements;
+}
+
 // ---------------------------------------------------------------------------
-// Tool-call rendering.
-//
-// TODO(candidate): this is a deliberately bare stub. Each tool returns
-// `{ rows, display }` where `display.kind` is "table" | "bar" | "line". Turn
-// these into real, streaming generative UI — render bar/line charts, show the
-// "calling…" → "result" transition nicely, handle empty/error states. Make it
-// something you'd ship.
+// Tool-call rendering — loading/error only. Successful tool results ground the
+// agent's answer but are not shown as raw DB tables; users see the assistant
+// prose only. Phase 4 adds generative charts for analytics (bar/line), not row
+// dumps with internal ids.
 // ---------------------------------------------------------------------------
 type ToolPart = {
   type: string;
   state?: string;
-  input?: unknown;
-  output?: { rows?: Row[]; display?: Display };
   errorText?: string;
 };
 
 function ToolCall({ part }: { part: unknown }) {
   const p = part as ToolPart;
-  const name = p.type.replace(/^tool-/, "");
-  const done = p.state === "output-available";
   const errored = p.state === "output-error";
+  const pending = p.state !== "output-available" && !errored;
 
-  return (
-    <div className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs">
-      <div className="font-medium text-gray-600">
-        {name}{" "}
-        <span className="font-normal text-gray-400">
-          {errored ? "· error" : done ? "· result" : "· calling…"}
-        </span>
+  if (errored) {
+    const name = p.type.replace(/^tool-/, "");
+    return (
+      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+        <span className="font-medium">{name}</span> failed
+        {p.errorText ? `: ${p.errorText}` : "."}
       </div>
-      {errored && <p className="mt-1 text-red-500">{p.errorText}</p>}
-      {done && <RowsTable output={p.output} />}
-    </div>
-  );
-}
+    );
+  }
 
-function RowsTable({ output }: { output?: { rows?: Row[]; display?: Display } }) {
-  const rows = output?.rows ?? [];
-  if (rows.length === 0) return <p className="mt-1 text-gray-400">No rows.</p>;
+  if (pending) {
+    return <p className="text-xs text-gray-400">Looking up data…</p>;
+  }
 
-  const display = output?.display;
-  const columns =
-    display && display.kind === "table"
-      ? display.columns
-      : Object.keys(rows[0]);
-
-  return (
-    <table className="mt-2 w-full border-collapse text-left">
-      <thead>
-        <tr className="text-gray-400">
-          {columns.map((c) => (
-            <th key={c} className="border-b border-gray-100 py-1 pr-2 font-medium">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 8).map((row, i) => (
-          <tr key={i} className="text-gray-600">
-            {columns.map((c) => (
-              <td key={c} className="border-b border-gray-50 py-1 pr-2">
-                {String(row[c] ?? "")}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  return null;
 }

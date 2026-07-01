@@ -131,12 +131,35 @@ export async function timeInFunnelByStage(ctx: AnalyticsCtx) {
     .orderBy(desc(avgDays));
 }
 
+const CANDIDATE_SOURCES = [
+  "referral",
+  "linkedin",
+  "job_board",
+  "agency",
+  "careers_site",
+] as const;
+
+/** Normalize model-provided source filters; ignore unknown values (avoids empty false negatives). */
+function normalizeSource(raw?: string): (typeof CANDIDATE_SOURCES)[number] | undefined {
+  if (!raw?.trim()) return undefined;
+  const s = raw.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const aliases: Record<string, (typeof CANDIDATE_SOURCES)[number]> = {
+    linked_in: "linkedin",
+    jobboard: "job_board",
+    careers: "careers_site",
+    careers_page: "careers_site",
+  };
+  const normalized = (aliases[s] ?? s) as (typeof CANDIDATE_SOURCES)[number];
+  return CANDIDATE_SOURCES.includes(normalized) ? normalized : undefined;
+}
+
 /** List candidates, scoped. Columns depend on role (analyst omits PII). */
 export async function listCandidates(
   ctx: AnalyticsCtx,
   opts: { source?: string; limit?: number } = {},
 ) {
-  const extra = opts.source ? [eq(candidates.source, opts.source)] : [];
+  const source = normalizeSource(opts.source);
+  const extra = source ? [eq(candidates.source, source)] : [];
   return db
     .select(candidateColumns(ctx.role))
     .from(candidates)
