@@ -1,15 +1,20 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import { applicationCountByStage, type AnalyticsCtx } from "@/db/analytics";
+import {
+  applicationCountByStage,
+  applicationsOverTime,
+  candidatesBySource,
+  jobsByStatus,
+  listCandidates,
+  openJobs as fetchOpenJobs,
+  timeInFunnelByStage,
+  type AnalyticsCtx,
+} from "@/db/analytics";
 import type { Display, ToolResult } from "./artifact";
 
 /**
  * The copilot's tool catalog — what the agent can actually do.
- *
- * This ships with ONE worked example. Designing the rest of the catalog is the
- * heart of the exercise: which tools should exist, their granularity, how their
- * inputs are shaped for a model to fill, and what each returns for the UI.
  *
  * The agent picks tools and passes high-level params — it never writes SQL.
  * Pass `ctx` to every query so results stay scoped to this workspace, and gate
@@ -23,8 +28,6 @@ export function buildTools(ctx: AnalyticsCtx) {
   });
 
   return {
-    // REFERENCE TOOL — a scoped query + typed input + a display hint the UI
-    // renders. Use it as the template for the tools you add.
     applicationCountByStage: tool({
       description:
         "Count applications grouped by pipeline stage (applied, screen, interview, offer, hired, rejected). Pass a jobId to scope to one job.",
@@ -40,8 +43,96 @@ export function buildTools(ctx: AnalyticsCtx) {
       },
     }),
 
-    // TODO(candidate): design and add the tools that make this a genuinely
-    // useful analytics copilot for this workspace's recruiting data.
+    candidatesBySource: tool({
+      description:
+        "Count candidates grouped by acquisition source (referral, linkedin, job_board, agency, careers_site).",
+      inputSchema: z.object({}),
+      async execute() {
+        const rows = await candidatesBySource(ctx);
+        return result(rows, {
+          kind: "bar",
+          x: "source",
+          y: "count",
+          title: "Candidates by source",
+        });
+      },
+    }),
+
+    applicationsOverTime: tool({
+      description:
+        "Application volume over time, bucketed by week (default) or month. Use for trends.",
+      inputSchema: z.object({ bucket: z.enum(["week", "month"]).optional() }),
+      async execute({ bucket }) {
+        const rows = await applicationsOverTime(ctx, { bucket });
+        return result(rows, {
+          kind: "line",
+          x: "period",
+          y: "count",
+          title: "Applications over time",
+        });
+      },
+    }),
+
+    jobsByStatus: tool({
+      description: "Count jobs grouped by status (open, closed, draft).",
+      inputSchema: z.object({}),
+      async execute() {
+        const rows = await jobsByStatus(ctx);
+        return result(rows, {
+          kind: "bar",
+          x: "status",
+          y: "count",
+          title: "Jobs by status",
+        });
+      },
+    }),
+
+    openJobs: tool({
+      description: "List currently open jobs (title, department, location).",
+      inputSchema: z.object({}),
+      async execute() {
+        const rows = await fetchOpenJobs(ctx);
+        return result(rows, {
+          kind: "table",
+          columns: ["title", "department", "location"],
+        });
+      },
+    }),
+
+    timeInFunnel: tool({
+      description:
+        "Average days spent in the funnel per pipeline stage (proxy for time-to-stage).",
+      inputSchema: z.object({}),
+      async execute() {
+        const rows = await timeInFunnelByStage(ctx);
+        return result(rows, {
+          kind: "bar",
+          x: "stage",
+          y: "avgDays",
+          title: "Avg days in funnel by stage",
+        });
+      },
+    }),
+
+    listCandidates: tool({
+      description:
+        "List candidates in this workspace, newest first. Use limit for 'top N' requests. Only pass source when the user names a channel (referral, linkedin, job_board, agency, careers_site). Contact details are role-gated.",
+      inputSchema: z.object({
+        source: z.string().optional(),
+        limit: z.number().int().positive().max(100).optional(),
+      }),
+      async execute({ source, limit }) {
+        const rows = await listCandidates(ctx, { source, limit });
+        if (ctx.role === "analyst") {
+          // Analyst rows have no PII — prose only; no source/createdAt table in chat.
+          return result(rows, { kind: "table", columns: [] });
+        }
+        return result(rows, {
+          kind: "table",
+          columns: ["name", "email", "phone"],
+        });
+      },
+    }),
   };
 }
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { db, ensureSchema } from "@/db/client";
-import { applicationCountByStage } from "@/db/analytics";
+import { applicationCountByStage, candidatesBySource, jobsByStatus } from "@/db/analytics";
 import { workspaces } from "@/db/schema";
 import { publicProcedure, router } from "../trpc";
 
@@ -23,6 +23,16 @@ export const appRouter = router({
         await ensureSchema();
         return applicationCountByStage(ctx, input ?? {});
       }),
+
+    candidatesBySource: publicProcedure.query(async ({ ctx }) => {
+      await ensureSchema();
+      return candidatesBySource(ctx);
+    }),
+
+    jobsByStatus: publicProcedure.query(async ({ ctx }) => {
+      await ensureSchema();
+      return jobsByStatus(ctx);
+    }),
   }),
 });
 

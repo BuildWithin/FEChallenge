@@ -9,7 +9,7 @@ import {
 import { ensureSchema } from "@/db/client";
 import type { Role } from "@/db/permissions";
 import { buildTools } from "./tools";
-import { getModel, SYSTEM_PROMPT } from "./provider";
+import { buildSystemPrompt, getModel } from "./provider";
 
 /**
  * Runs the analytics copilot for one turn and RETURNS the `streamText` result.
@@ -39,7 +39,7 @@ export async function streamCopilot({
   // strategy, and whether the agent should emit a typed structured answer.
   return streamText({
     model,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt({ workspaceId, role }),
     messages: await convertToModelMessages(messages),
     tools: buildTools({ workspaceId, role }),
     stopWhen: stepCountIs(6),

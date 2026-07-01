@@ -1,0 +1,48 @@
+# ATS Analytics Copilot — Cursor agent rules
+
+Multi-tenant ATS analytics copilot (take-home). Read DECISIONS.md for why; this file is how to work safely in the codebase.
+
+## Non-negotiables
+
+1. **Tenant isolation** — Every DB read uses `ctx: { workspaceId, role }` first and `scopeWhere(table, ctx, extra)` in `src/db/analytics.ts`. Never query across workspaces.
+2. **PII by construction** — Row-level candidate reads use `candidateColumns(role)`. Analysts never SELECT name/email/phone. Do not post-filter PII in the UI or agent as a substitute.
+3. **Real model for demos, mock for CI** — Default `AI_PROVIDER=mock`. Do not commit `.env.local` or API keys.
+
+## Architecture conventions
+
+- **Tools** (`src/agent/tools.ts`): one analytical question per tool; all Zod inputs optional; return `{ rows, display }` per `src/agent/artifact.ts`.
+- **UI** (`src/app/page.tsx`): single `ToolResult` dispatcher on `display.kind` (table | bar | line). No per-tool chart components. Hide internal columns `id`, `workspaceId` in tables.
+- **Agent prompt** (`src/agent/provider.ts`): use `buildSystemPrompt({ workspaceId, role })` — never a static one-size-fits-all PII rule. Keep TOOL CATALOG and KNOWN LIMITATIONS aligned with actual tools.
+- **Tests**: colocate in `src/**/__tests__/`. Run `pnpm test`, `pnpm eval`, `pnpm typecheck`, `pnpm build` before PRs.
+
+## Chat UX (already shipped — preserve behavior)
+
+- Tables (listCandidates, openJobs): visual is the answer for admin/recruiter — no duplicate prose.
+- Analyst listCandidates: permission notice only (no fake candidate list).
+- Analyst bar/line: chart only, no redundant summary.
+- No tool names (`listCandidates · result`) in the user-facing UI.
+
+## What not to let the agent decide alone
+
+- Changes to `scopeWhere`, `candidateColumns`, or eval isolation/PII scorers.
+- Weakening optional tool inputs in ways that break the mock boot path.
+- Adding queries without workspace scoping.
+
+## Safe to delegate
+
+- Boilerplate tools/queries following existing patterns.
+- Chart/table markup within `display` contract.
+- Copy and non-security prompt tweaks.
+- Docs in `docs/` (supplementary); keep DECISIONS.md reasoning-focused.
+
+## Key paths
+
+- Query layer: `src/db/analytics.ts`, `src/db/permissions.ts`
+- Tools: `src/agent/tools.ts`
+- Agent loop: `src/agent/run.ts`, `src/agent/provider.ts`
+- Evals: `evals/copilot.eval.ts`
+- Future work: `docs/roadmap.md`
+
+## Git workflow used on this project
+
+One feature branch + PR per phase to `main` on the fork. Do not force-push `main`.

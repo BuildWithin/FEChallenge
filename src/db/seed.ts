@@ -140,17 +140,21 @@ function buildFixtures() {
     let appN = 0;
 
     for (let i = 0; i < ws.candidateCount; i++) {
-      const first = FIRST[i % FIRST.length];
-      const last = LAST[(i * 7) % LAST.length];
+      // Offset names per workspace so tenants are visually distinct in demos
+      // (same formula otherwise produced identical top candidates in both).
+      const nameOffset = ws.prefix === "mer" ? 5 : 0;
+      const first = FIRST[(i + nameOffset) % FIRST.length];
+      const last = LAST[((i + nameOffset) * 7) % LAST.length];
       const source = SOURCES[i % SOURCES.length];
       const candidateId = `${ws.prefix}-cand-${i + 1}`;
+      const phoneBase = ws.prefix === "mer" ? 2000 : 1000;
 
       candidateRows.push({
         id: candidateId,
         workspaceId: ws.id,
         name: `${first} ${last}`,
-        email: `${first}.${last}.${i + 1}@example.com`.toLowerCase(),
-        phone: `+1-555-${String(1000 + i).padStart(4, "0")}`,
+        email: `${first}.${last}.${i + 1}@${ws.slug}.example.com`.toLowerCase(),
+        phone: `+1-555-${String(phoneBase + i).padStart(4, "0")}`,
         source,
         createdAt: new Date(BASE + i * 3 * DAY),
       });

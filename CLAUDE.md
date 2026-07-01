@@ -1,73 +1,75 @@
-# Working notes (for your AI agent / you)
+# Agent orientation — ATS Analytics Copilot
 
-This is a small, runnable take-home: a multi-tenant **ATS analytics copilot**. An
-AI agent chats with a hiring team about **one workspace's** recruiting data (jobs,
-candidates, applications), calls tools to answer questions, and renders the results
-as charts/tables.
+Working notes for **you and your AI coding agent**. This repo is a completed
+take-home slice: multi-tenant ATS analytics copilot with scoped tools, Evalite
+benchmarks, and generative UI. Trade-offs and reasoning live in **`DECISIONS.md`**.
 
-> Make this file yours — you're expected to commit your agent config. Adjust these
-> notes as you work.
+> **Cursor users:** day-to-day agent rules are in **`.cursorrules`** at the repo
+> root (committed per the brief). This file stays the shared orientation for
+> Claude Code and other agents.
 
 ## The one rule that matters most
 
-**All data access is scoped to the caller's workspace AND role.** Every read must be
-constrained to `ctx.workspaceId`, and candidate PII (name / email / phone) must be
-gated by role — an `analyst` never sees it. A cross-workspace or PII leak is the
-worst bug you can ship here. The reference query in `src/db/analytics.ts`
-(`scopeWhere` + `applicationCountByStage`) shows the scoped pattern; extend it so
-scope can't be forgotten as the layer grows. The tRPC `analytics.*` procedures pass
-`ctx` correctly — mirror that.
+**All data access is scoped to the caller's workspace AND role.**
 
-## Build a real agent
+- Every read: `ctx.workspaceId` via `scopeWhere` in `src/db/analytics.ts`.
+- Candidate PII (name / email / phone): gated by `candidateColumns(role)` — an
+  `analyst` must never SELECT those columns. A cross-workspace or PII leak is the
+  worst bug you can ship.
 
-The repo **boots** on a mock model so it runs on clone and tests stay deterministic,
-but the mock is a stand-in — **build your copilot against a real model.** Set
-`AI_PROVIDER` to a real provider, or route through a gateway (see `.env.example` and
-`src/agent/provider.ts`). Your demo should show the real agent working.
+Extend the query layer using the reference pattern in `applicationCountByStage`;
+mirror how tRPC passes `ctx` from headers.
 
-## What's given vs. what you build
+## What is implemented (do not re-stub)
 
-- **Given:** the schema + seed (two workspaces), the streaming agent loop, the
-  provider layer, the mock (boot/tests only), a minimal chat UI, the tRPC layer, and
-  **one worked tool end-to-end** as a reference.
-- **You build:** the tool catalog, the query layer behind it, permission
-  enforcement, the generative chart UI, and the two benchmark stubs. See `README.md`
-  for the full brief.
+| Area | Status |
+| --- | --- |
+| `src/db/permissions.ts` | PII by construction |
+| `src/db/analytics.ts` | Seven scoped queries + `scopeWhere` |
+| `src/agent/tools.ts` | Seven tools → `{ rows, display }` |
+| `src/agent/provider.ts` | `buildSystemPrompt({ workspaceId, role })` + real providers |
+| `src/app/page.tsx` | `display`-driven charts/tables + role-aware UX |
+| `evals/copilot.eval.ts` | 11 Evalite cases (isolation + permissions) |
+| `DECISIONS.md` | Deliverable write-up |
+
+**Mock vs real model:** `AI_PROVIDER=mock` (default) for boot/CI/evals. Set
+`AI_PROVIDER=openai` (or anthropic/bedrock) in `.env.local` for demos — see
+`.env.example`.
 
 ## Repo layout
 
 ```
 src/
-  db/        Drizzle schema + PGlite client + seed + analytics.ts (query layer) + permissions.ts
-  server/    tRPC router + context (carries workspaceId + role from headers)
-  agent/     tools.ts · run.ts (streamText loop) · provider.ts · mock-model.ts · artifact.ts
-  app/       chat UI, providers, /api/chat, /api/trpc
-evals/       agent evals — Evalite *.eval.ts (pnpm eval)
+  db/        schema · PGlite · seed · analytics.ts · permissions.ts
+  server/    tRPC router + context (workspaceId + role from headers)
+  agent/     tools.ts · run.ts · provider.ts · mock-model.ts · artifact.ts
+  app/       chat UI · /api/chat · /api/trpc
+evals/       Evalite *.eval.ts
+docs/        supplementary phase guides + roadmap (optional reading)
 ```
-
-## Stack
-
-Next.js 16 (App Router, Turbopack) · React 19 · Vercel AI SDK v6 · tRPC v11 +
-TanStack Query + superjson · Drizzle ORM over PGlite (in-process Postgres,
-file-backed at `./.pglite`) · Tailwind v3 · TypeScript strict.
 
 ## Commands
 
 ```bash
 pnpm install
-pnpm db:seed      # wipe + seed the two workspaces (Brightwave, Meridian Logistics)
+pnpm db:seed      # Brightwave + Meridian Logistics
 pnpm dev          # http://localhost:3000
-pnpm eval         # run agent evals once (Evalite)
-pnpm eval:dev     # Evalite watch + local UI
+pnpm eval         # Evalite (mock)
+pnpm test         # vitest — tests under src/**/__tests__/
 pnpm typecheck
-pnpm test         # vitest
 pnpm build
 ```
 
-## Where to start
+## When you change things
 
-- `src/agent/tools.ts` — the reference tool; design the catalog.
-- `src/db/analytics.ts` — the reference query + `scopeWhere`; build the layer.
-- `src/db/permissions.ts` — enforce PII by role (it's a stub).
-- `src/app/page.tsx` — turn tool results into real generative UI (currently a stub).
-- `evals/copilot.eval.ts` — Evalite; flesh out the tenant-isolation & permission evals.
+- **New query:** `ctx` first, `scopeWhere`, `candidateColumns` for candidate rows.
+- **New tool:** optional inputs (mock), return `{ rows, display }` with a known `kind`.
+- **UI:** dispatch on `display.kind` in `page.tsx` — avoid per-tool components.
+- **Prompt:** keep TOOL CATALOG / KNOWN LIMITATIONS in sync with tools; see
+  `docs/roadmap.md` when adding capabilities.
+- **Tests:** colocate under `src/**/__tests__/`, not a top-level `tests/` folder.
+
+## Using AI tools on this repo
+
+Use agents freely; **own security and scoping**. See **“Working with the agent”**
+in `DECISIONS.md` for what we delegated vs what we reviewed by hand.
