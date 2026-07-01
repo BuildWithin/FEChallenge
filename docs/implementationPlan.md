@@ -3,6 +3,10 @@
 > Master plan for the BuildWithin Product Engineer build exercise (~4 focused
 > hours). Per-phase build guides: [phase1.md](phase1.md) · [phase2.md](phase2.md) ·
 > [phase3.md](phase3.md) · [phase4.md](phase4.md).
+>
+> **Status:** Phases 1–4 are complete on fork `main`. The phase guides describe how
+> each slice was built; outcomes live in [DECISIONS.md](../DECISIONS.md) and
+> follow-ups in [roadmap.md](roadmap.md).
 
 ---
 
@@ -101,15 +105,15 @@ the query layer so they can't be forgotten as the catalog grows.
 
 ## Definition of done (full exercise)
 
-- [ ] Four PRs merged to `main` (one per phase branch).
-- [ ] Hard requirements proven by evals (Phase 3) and visible in UI (Phase 4).
-- [ ] `DECISIONS.md` complete.
-- [ ] `pnpm typecheck`, `pnpm test`, `pnpm eval`, `pnpm build` green on `main`.
+- [x] Four PRs merged to `main` (one per phase branch).
+- [x] Hard requirements proven by evals (Phase 3) and visible in UI (Phase 4).
+- [x] `DECISIONS.md` complete.
+- [x] `pnpm typecheck`, `pnpm test`, `pnpm eval`, `pnpm build` green on `main`.
 
 ---
 
-## First actions
+## Quick verification (on `main`)
 
-1. `pnpm install && pnpm db:seed && pnpm dev` — confirm baseline on `main`.
-2. `git checkout -b feature/security-tenant` — implement [phase1.md](phase1.md).
-3. Open PR to `main`; repeat for each phase after merge.
+1. `pnpm install && pnpm db:seed && pnpm dev` — chat with workspace/role toggles.
+2. `pnpm test` (28 cases), `pnpm eval` (11 cases), `pnpm build`.
+3. Real-model demo: copy `.env.example` → `.env.local`, set `AI_PROVIDER` + API key.

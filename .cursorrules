@@ -33,7 +33,7 @@ Multi-tenant ATS analytics copilot (take-home). Read DECISIONS.md for why; this 
 - Boilerplate tools/queries following existing patterns.
 - Chart/table markup within `display` contract.
 - Copy and non-security prompt tweaks.
-- Docs in `docs/` (planning); keep DECISIONS.md reasoning-focused.
+- Docs in `docs/` (supplementary); keep DECISIONS.md reasoning-focused.
 
 ## Key paths
 

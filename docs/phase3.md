@@ -100,7 +100,8 @@ the answer is grounded in returned rows, and no PII appears as `analyst`.
 The file already has the harness: `runCopilot(question, workspaceId, role)`
 collapses a run into `{ text, toolNames, rows }`, plus `usedATool` / `returnedData`
 scorers and an example eval (see [evals/copilot.eval.ts](../evals/copilot.eval.ts)).
-The three TODO'd evals (lines 98-111) are what we add.
+The three eval blocks below (tenant isolation, analyst PII, optional answer quality)
+are what shipped — 11 deterministic cases total in `evals/copilot.eval.ts`.
 
 **Design rule:** the hard-requirement scorers must be **deterministic** — they
 compare against seed ground truth via direct analytics calls, never against model
